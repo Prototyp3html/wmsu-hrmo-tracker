@@ -15,11 +15,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchApplicants, fetchApplications, fetchJobs, fetchStatusHistory, updateApplicationStatus } from "@/lib/api";
+import { fetchApplicants, fetchApplications, fetchEmailTemplates, fetchJobs, fetchStatusHistory, updateApplicationStatus } from "@/lib/api";
 import { allStatuses, getStatusColor, getNextSuggestedStatus } from "@/lib/status";
-import type { Application, ApplicationStatus } from "@/lib/types";
+import type { Application, ApplicationStatus, EmailTemplate } from "@/lib/types";
 import { Clock, MessageSquare, ArrowRight, Lightbulb, Ellipsis } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+type RejectionSubtype = "not_qualified" | "non_teaching" | "teaching";
 
 const nextStepHints: Partial<Record<ApplicationStatus, string>> = {
   "Application Received": "Move to screening once documents are complete.",
@@ -29,6 +31,10 @@ const nextStepHints: Partial<Record<ApplicationStatus, string>> = {
   "For Final Evaluation": "Advance after final deliberation.",
   "Approved": "Mark as Hired when appointment is confirmed."
 };
+
+function renderTemplateText(template: string, variables: Record<string, string>) {
+  return template.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_match, key: string) => variables[key] ?? "");
+}
 
 export default function ApplicationTracking() {
   const { toast } = useToast();
@@ -49,7 +55,10 @@ export default function ApplicationTracking() {
     finalEvaluationTime: string;
     finalEvaluationVenue: string;
     notifyApplicant: boolean;
-    rejectionSubtype?: "not_qualified" | "non_teaching" | "teaching";
+    rejectionSubtype?: RejectionSubtype;
+    rejectionTemplateKey?: EmailTemplate["templateKey"];
+    rejectionTemplateText: string;
+    qualificationTemplateText: string;
   } | null>(null);
   const [suggestedApp, setSuggestedApp] = useState<Application | null>(null);
 
@@ -66,6 +75,11 @@ export default function ApplicationTracking() {
   const { data: jobVacancies = [] } = useQuery({
     queryKey: ["jobs"],
     queryFn: fetchJobs
+  });
+
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ["email-templates"],
+    queryFn: fetchEmailTemplates
   });
 
   const historyQuery = useQuery({
@@ -91,6 +105,40 @@ export default function ApplicationTracking() {
 
   const getVacancyTitle = (id: string) =>
     jobVacancies.find((v) => v.id === id)?.positionTitle ?? "Unknown";
+
+  const getRejectionTemplate = (templateKey?: EmailTemplate["templateKey"]) =>
+    emailTemplates.find((template) => template.templateKey === templateKey && template.templateGroup === "rejection");
+
+  const getQualificationTemplate = () =>
+    emailTemplates.find((template) => template.templateKey === "qualification_notice" && template.templateGroup === "qualification");
+
+  const getRenderedRejectionTemplateText = (
+    templateKey: EmailTemplate["templateKey"],
+    applicantName: string,
+    jobTitle: string
+  ) => {
+    const template = getRejectionTemplate(templateKey);
+    if (!template) return "";
+    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    return renderTemplateText(template.body, {
+      applicantName,
+      jobTitle,
+      date: today,
+      today
+    });
+  };
+
+  const getRenderedQualificationTemplateText = (applicantName: string, jobTitle: string) => {
+    const template = getQualificationTemplate();
+    if (!template) return "";
+    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    return renderTemplateText(template.body, {
+      applicantName,
+      jobTitle,
+      date: today,
+      today
+    });
+  };
 
   const filtered = useMemo(() => {
     return applications.filter(
@@ -192,6 +240,9 @@ export default function ApplicationTracking() {
                     {/* Update Status */}
                     <Dialog onOpenChange={(open) => {
                       if (open) {
+                        const qualificationTemplateText = app.status === "Approved"
+                          ? getRenderedQualificationTemplateText(getApplicantName(app.applicantId), getVacancyTitle(app.vacancyId))
+                          : "";
                         setStatusForm({
                           status: app.status,
                           remarks: "",
@@ -206,7 +257,10 @@ export default function ApplicationTracking() {
                           finalEvaluationTime: app.finalEvaluationTime ?? "",
                           finalEvaluationVenue: app.finalEvaluationVenue ?? "",
                           notifyApplicant: true,
-                          rejectionSubtype: undefined
+                          rejectionSubtype: undefined,
+                          rejectionTemplateKey: undefined,
+                          rejectionTemplateText: "",
+                          qualificationTemplateText
                         });
                       } else {
                         setStatusForm(null);
@@ -218,7 +272,7 @@ export default function ApplicationTracking() {
                           Update Status
                         </DropdownMenuItem>
                       </DialogTrigger>
-                      <DialogContent>
+                      <DialogContent className="max-h-[85vh] overflow-y-auto">
                         <DialogHeader><DialogTitle>Update Application Status</DialogTitle></DialogHeader>
                         <div className="space-y-4">
                           <div className="text-sm">
@@ -231,7 +285,16 @@ export default function ApplicationTracking() {
                           </div>
                           <div className="space-y-2">
                             <Label>New Status</Label>
-                            <Select value={statusForm?.status ?? app.status} onValueChange={(value) => setStatusForm((prev) => prev ? ({ ...prev, status: value as ApplicationStatus }) : prev)}>
+                            <Select value={statusForm?.status ?? app.status} onValueChange={(value) => setStatusForm((prev) => prev ? ({
+                              ...prev,
+                              status: value as ApplicationStatus,
+                              qualificationTemplateText: value === "Approved"
+                                ? getRenderedQualificationTemplateText(getApplicantName(app.applicantId), getVacancyTitle(app.vacancyId))
+                                : prev.qualificationTemplateText,
+                              rejectionSubtype: value === "Rejected" ? prev.rejectionSubtype : undefined,
+                              rejectionTemplateKey: value === "Rejected" ? prev.rejectionTemplateKey : undefined,
+                              rejectionTemplateText: value === "Rejected" ? prev.rejectionTemplateText : ""
+                            }) : prev)}>
                               <SelectTrigger><SelectValue /></SelectTrigger>
                               <SelectContent>
                                 {allStatuses.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
@@ -328,7 +391,16 @@ export default function ApplicationTracking() {
                             <div className="space-y-2 rounded-md border p-3 bg-amber-50">
                               <Label className="font-semibold">Rejection Type</Label>
                               <p className="text-xs text-muted-foreground mb-2">Select the rejection template to send to the applicant</p>
-                              <Select value={statusForm.rejectionSubtype ?? ""} onValueChange={(value) => setStatusForm((prev) => prev ? ({ ...prev, rejectionSubtype: value as "not_qualified" | "non_teaching" | "teaching" }) : prev)}>
+                              <Select value={statusForm.rejectionSubtype ?? ""} onValueChange={(value) => {
+                                const subtype = value as RejectionSubtype;
+                                const templateKey = subtype;
+                                setStatusForm((prev) => prev ? ({
+                                  ...prev,
+                                  rejectionSubtype: subtype,
+                                  rejectionTemplateKey: templateKey,
+                                  rejectionTemplateText: getRenderedRejectionTemplateText(templateKey, getApplicantName(app.applicantId), getVacancyTitle(app.vacancyId))
+                                }) : prev);
+                              }}>
                                 <SelectTrigger>
                                   <SelectValue placeholder="Choose rejection type..." />
                                 </SelectTrigger>
@@ -338,6 +410,27 @@ export default function ApplicationTracking() {
                                   <SelectItem value="teaching">Teaching Position</SelectItem>
                                 </SelectContent>
                               </Select>
+                              {statusForm.rejectionSubtype && (
+                                <div className="space-y-2 mt-2">
+                                  <Label className="font-medium">Template Text (Editable)</Label>
+                                  <Textarea
+                                    className="min-h-[220px]"
+                                    value={statusForm.rejectionTemplateText}
+                                    onChange={(e) => setStatusForm((prev) => prev ? ({ ...prev, rejectionTemplateText: e.target.value }) : prev)}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {statusForm?.status === "Approved" && (
+                            <div className="space-y-2 rounded-md border p-3 bg-emerald-50">
+                              <Label className="font-semibold">Qualification Notice</Label>
+                              <p className="text-xs text-muted-foreground mb-2">This template is sent when the status is Approved.</p>
+                              <Textarea
+                                className="min-h-[220px]"
+                                value={statusForm.qualificationTemplateText}
+                                onChange={(e) => setStatusForm((prev) => prev ? ({ ...prev, qualificationTemplateText: e.target.value }) : prev)}
+                              />
                             </div>
                           )}
                           <div className="space-y-2">
@@ -369,6 +462,18 @@ export default function ApplicationTracking() {
                                 toast({ title: "Requirement missing", description: "Please set final evaluation date, time, and venue.", variant: "destructive" });
                                 return;
                               }
+                              if (statusForm.status === "Rejected" && !statusForm.rejectionSubtype) {
+                                toast({ title: "Requirement missing", description: "Please choose a rejection type first.", variant: "destructive" });
+                                return;
+                              }
+                              if (statusForm.status === "Rejected" && !statusForm.rejectionTemplateText.trim()) {
+                                toast({ title: "Requirement missing", description: "Template text cannot be empty for rejected status.", variant: "destructive" });
+                                return;
+                              }
+                              if (statusForm.status === "Approved" && !statusForm.qualificationTemplateText.trim()) {
+                                toast({ title: "Requirement missing", description: "Qualification notice text cannot be empty for approved status.", variant: "destructive" });
+                                return;
+                              }
 
                               updateMutation.mutate({
                                 id: app.id,
@@ -385,7 +490,9 @@ export default function ApplicationTracking() {
                                 finalEvaluationTime: statusForm.finalEvaluationTime || undefined,
                                 finalEvaluationVenue: statusForm.finalEvaluationVenue.trim() || undefined,
                                 notifyApplicant: statusForm.notifyApplicant,
-                                rejectionSubtype: statusForm.rejectionSubtype
+                                rejectionSubtype: statusForm.rejectionSubtype,
+                                rejectionTemplateText: statusForm.rejectionTemplateText.trim() || undefined,
+                                qualificationTemplateText: statusForm.qualificationTemplateText.trim() || undefined
                               });
                             }}
                             disabled={updateMutation.isPending}

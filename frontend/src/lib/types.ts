@@ -215,3 +215,12 @@ export interface AuditLog {
   details?: Record<string, unknown>;
   createdAt: string;
 }
+
+export interface EmailTemplate {
+  templateKey: "not_qualified" | "non_teaching" | "teaching" | "qualification_notice";
+  templateName: string;
+  templateGroup: "rejection" | "qualification";
+  subject: string;
+  body: string;
+  updatedAt: string;
+}

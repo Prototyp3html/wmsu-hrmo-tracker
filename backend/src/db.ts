@@ -172,6 +172,15 @@ export async function initDb() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS email_templates (
+      template_key TEXT PRIMARY KEY,
+      template_name TEXT NOT NULL,
+      template_group TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
@@ -256,6 +265,16 @@ export async function initDb() {
     ADD COLUMN IF NOT EXISTS final_evaluation_date TEXT,
     ADD COLUMN IF NOT EXISTS final_evaluation_time TEXT,
     ADD COLUMN IF NOT EXISTS final_evaluation_venue TEXT;
+  `).catch(() => {});
+
+  // Add email templates table columns for existing databases.
+  await query(`
+    ALTER TABLE email_templates
+    ADD COLUMN IF NOT EXISTS template_name TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS template_group TEXT NOT NULL DEFAULT 'rejection',
+    ADD COLUMN IF NOT EXISTS subject TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS body TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS updated_at TEXT NOT NULL DEFAULT '';
   `).catch(() => {});
 
   // Add key PDS identity fields for applicants.

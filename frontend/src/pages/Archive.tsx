@@ -1,10 +1,18 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { fetchApplicants, fetchApplications, fetchJobs } from "@/lib/api";
-import { Search } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { fetchApplicants, fetchApplications, fetchEmailTemplates, fetchJobs, updateEmailTemplate } from "@/lib/api";
+import type { EmailTemplate } from "@/lib/types";
+import { Search, Pencil } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 type ArchiveRow = {
   id: string;
@@ -16,9 +24,46 @@ type ArchiveRow = {
   remarks: string;
 };
 
+const REQUIRED_PLACEHOLDERS = ["{{applicantName}}", "{{jobTitle}}", "{{date}}"] as const;
+
+function getPlaceholderRanges(text: string) {
+  return REQUIRED_PLACEHOLDERS.flatMap((placeholder) => {
+    const ranges: Array<{ start: number; end: number }> = [];
+    let index = text.indexOf(placeholder);
+    while (index !== -1) {
+      ranges.push({ start: index, end: index + placeholder.length });
+      index = text.indexOf(placeholder, index + placeholder.length);
+    }
+    return ranges;
+  });
+}
+
+function selectionIntersectsProtected(text: string, start: number, end: number) {
+  return getPlaceholderRanges(text).some((range) => start < range.end && end > range.start);
+}
+
+function caretTouchesProtected(text: string, caret: number, key: "Backspace" | "Delete") {
+  return getPlaceholderRanges(text).some((range) => {
+    if (key === "Backspace") {
+      return caret > range.start && caret <= range.end;
+    }
+    return caret >= range.start && caret < range.end;
+  });
+}
+
 export default function Archive() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
+  const [templateForm, setTemplateForm] = useState({
+    templateName: "",
+    templateGroup: "rejection" as EmailTemplate["templateGroup"],
+    subject: "",
+    body: ""
+  });
 
   const { data: applicants = [], isLoading: loadingApplicants } = useQuery({
     queryKey: ["applicants"],
@@ -33,6 +78,24 @@ export default function Archive() {
   const { data: jobs = [], isLoading: loadingJobs } = useQuery({
     queryKey: ["jobs"],
     queryFn: fetchJobs
+  });
+
+  const { data: emailTemplates = [], isLoading: loadingTemplates } = useQuery({
+    queryKey: ["email-templates"],
+    queryFn: fetchEmailTemplates
+  });
+
+  const saveTemplateMutation = useMutation({
+    mutationFn: ({ templateKey, payload }: { templateKey: EmailTemplate["templateKey"]; payload: Omit<EmailTemplate, "templateKey" | "updatedAt"> }) =>
+      updateEmailTemplate(templateKey, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["email-templates"] });
+      setEditingTemplate(null);
+      toast({ title: "Template saved", description: "Email template updated successfully." });
+    },
+    onError: (error) => {
+      toast({ title: "Save failed", description: (error as Error).message, variant: "destructive" });
+    }
   });
 
   const rows = useMemo<ArchiveRow[]>(() => {
@@ -87,6 +150,46 @@ export default function Archive() {
     });
   }, [rows, search, statusFilter]);
 
+  const templatesByGroup = useMemo(() => ({
+    rejection: emailTemplates.filter((template) => template.templateGroup === "rejection"),
+    qualification: emailTemplates.filter((template) => template.templateGroup === "qualification")
+  }), [emailTemplates]);
+
+  const bodyPreview = (body: string) => body.replace(/\s+/g, " ").trim().slice(0, 200);
+
+  const openTemplateEditor = (template: EmailTemplate) => {
+    setEditingTemplate(template);
+    setTemplateForm({
+      templateName: template.templateName,
+      templateGroup: template.templateGroup,
+      subject: template.subject,
+      body: template.body
+    });
+  };
+
+  const missingPlaceholders = REQUIRED_PLACEHOLDERS.filter((placeholder) => !templateForm.body.includes(placeholder));
+
+  const handleTemplateBodyKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Backspace" && event.key !== "Delete") return;
+
+    const target = event.currentTarget;
+    const start = target.selectionStart ?? 0;
+    const end = target.selectionEnd ?? 0;
+
+    if (start !== end) {
+      if (selectionIntersectsProtected(templateForm.body, start, end)) {
+        event.preventDefault();
+        toast({ title: "Protected text", description: "Required placeholders cannot be deleted.", variant: "destructive" });
+      }
+      return;
+    }
+
+    if (caretTouchesProtected(templateForm.body, start, event.key as "Backspace" | "Delete")) {
+      event.preventDefault();
+      toast({ title: "Protected text", description: "Required placeholders cannot be deleted.", variant: "destructive" });
+    }
+  };
+
   const isLoading = loadingApplicants || loadingApplications || loadingJobs;
 
   return (
@@ -121,6 +224,59 @@ export default function Archive() {
             </SelectContent>
           </Select>
         </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <Accordion type="single" collapsible>
+          <AccordionItem value="email-templates" className="border-0">
+            <AccordionTrigger className="px-5 py-4 hover:no-underline">
+              <div className="text-left">
+                <h2 className="text-lg font-semibold text-foreground">Email Templates</h2>
+                <p className="text-sm text-muted-foreground mt-1">Click to view or edit rejection and qualification templates.</p>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="px-5 pb-5 pt-0">
+              {loadingTemplates ? (
+                <p className="text-sm text-muted-foreground">Loading templates...</p>
+              ) : (
+                <div className="space-y-6">
+                  {(["rejection", "qualification"] as const).map((group) => (
+                    <div key={group} className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold text-foreground capitalize">{group} Templates</h3>
+                        <span className="text-xs text-muted-foreground">{templatesByGroup[group].length} template(s)</span>
+                      </div>
+                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                        {templatesByGroup[group].map((template) => (
+                          <div key={template.templateKey} className="rounded-xl border border-border/60 bg-background p-4 shadow-sm space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-foreground truncate">{template.templateName}</p>
+                                <p className="text-xs text-muted-foreground">Key: {template.templateKey}</p>
+                              </div>
+                              {user?.role === "admin" && (
+                                <Button variant="outline" size="sm" onClick={() => openTemplateEditor(template)}>
+                                  <Pencil className="w-4 h-4 mr-2" /> Edit
+                                </Button>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                              <span className="rounded-full bg-muted px-2.5 py-1">Subject: {template.subject}</span>
+                              <span className="rounded-full bg-muted px-2.5 py-1">Updated: {new Date(template.updatedAt).toLocaleDateString()}</span>
+                            </div>
+                            <div className="rounded-lg bg-muted/30 border border-border/50 p-3 text-sm whitespace-pre-wrap leading-6 max-h-36 overflow-auto">
+                              {bodyPreview(template.body)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </Card>
 
       <Card>
@@ -168,6 +324,70 @@ export default function Archive() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(editingTemplate)} onOpenChange={(open) => !open && setEditingTemplate(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Email Template</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Template Name</Label>
+              <Input value={templateForm.templateName} onChange={(e) => setTemplateForm((prev) => ({ ...prev, templateName: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Subject</Label>
+              <Input value={templateForm.subject} onChange={(e) => setTemplateForm((prev) => ({ ...prev, subject: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Body</Label>
+              <Textarea
+                className="min-h-[340px] font-mono text-sm"
+                value={templateForm.body}
+                onKeyDown={handleTemplateBodyKeyDown}
+                onChange={(e) => setTemplateForm((prev) => ({ ...prev, body: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                You can use placeholders like {"{{applicantName}}"}, {"{{jobTitle}}"}, and {"{{date}}"}.
+              </p>
+              {missingPlaceholders.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  The required placeholders are locked and will be restored automatically.
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" type="button" onClick={() => setEditingTemplate(null)}>Cancel</Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  if (!editingTemplate) return;
+                  if (missingPlaceholders.length > 0) {
+                    toast({
+                      title: "Required placeholders missing",
+                      description: "Please keep {{applicantName}}, {{jobTitle}}, and {{date}} in the template.",
+                      variant: "destructive"
+                    });
+                    return;
+                  }
+                  saveTemplateMutation.mutate({
+                    templateKey: editingTemplate.templateKey,
+                    payload: {
+                      templateName: templateForm.templateName,
+                      templateGroup: templateForm.templateGroup,
+                      subject: templateForm.subject,
+                      body: templateForm.body
+                    }
+                  });
+                }}
+                disabled={saveTemplateMutation.isPending || missingPlaceholders.length > 0}
+              >
+                Save Template
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

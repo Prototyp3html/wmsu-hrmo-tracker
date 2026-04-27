@@ -6,6 +6,7 @@ import type {
   Department,
   Evaluation,
   AuditLog,
+  EmailTemplate,
   JobVacancy,
   StatusHistory,
   User,
@@ -259,6 +260,8 @@ export async function updateApplicationStatus(payload: {
   finalEvaluationVenue?: string;
   notifyApplicant?: boolean;
   rejectionSubtype?: "not_qualified" | "non_teaching" | "teaching";
+  rejectionTemplateText?: string;
+  qualificationTemplateText?: string;
 }) {
   return apiFetch<{ application: Application; history: StatusHistory }>(`/applications/${payload.id}/status`, {
     method: "PATCH",
@@ -276,7 +279,9 @@ export async function updateApplicationStatus(payload: {
       finalEvaluationTime: payload.finalEvaluationTime,
       finalEvaluationVenue: payload.finalEvaluationVenue,
       notifyApplicant: payload.notifyApplicant,
-      rejectionSubtype: payload.rejectionSubtype
+      rejectionSubtype: payload.rejectionSubtype,
+      rejectionTemplateText: payload.rejectionTemplateText,
+      qualificationTemplateText: payload.qualificationTemplateText
     })
   });
 }
@@ -287,6 +292,17 @@ export async function fetchStatusHistory(applicationId: string) {
 
 export async function fetchEvaluations() {
   return apiFetch<Evaluation[]>("/evaluations");
+}
+
+export async function fetchEmailTemplates() {
+  return apiFetch<EmailTemplate[]>("/email-templates");
+}
+
+export async function updateEmailTemplate(templateKey: EmailTemplate["templateKey"], payload: Omit<EmailTemplate, "templateKey" | "updatedAt">) {
+  return apiFetch<EmailTemplate>(`/email-templates/${templateKey}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function createEvaluation(payload: {
