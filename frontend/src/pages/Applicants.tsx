@@ -29,9 +29,9 @@ import {
   fetchApplicantDocuments,
   getFileUrl
 } from "@/lib/api";
-import type { ParsedApplicantDraft } from "@/lib/types";
+import type { Applicant, ApplicantDocument, Application, ParsedApplicantDraft } from "@/lib/types";
 import { getStatusColor } from "@/lib/status";
-import { Plus, Search, Eye, Mail, Phone, MapPin, GraduationCap, Briefcase, Upload, Pencil, Trash2, Ellipsis, Check, ChevronsUpDown } from "lucide-react";
+import { Plus, Search, Eye, Mail, Phone, MapPin, GraduationCap, Briefcase, Upload, Pencil, Trash2, Ellipsis, Check, ChevronsUpDown, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type NameParts = {
@@ -432,16 +432,13 @@ function parseWorkExperience(value: string): WorkExperienceEntry[] {
         isGovtService = ""
       ] = parts;
 
-      const normalizedGovtService: WorkExperienceEntry["isGovtService"] =
-        isGovtService === "Y" || isGovtService === "N" ? isGovtService : "";
-
       return {
         dateFrom,
         dateTo,
         positionTitle,
         departmentAgencyOfficeCompany,
         statusOfAppointment,
-        isGovtService: normalizedGovtService
+        isGovtService: (isGovtService === "Y" || isGovtService === "N" ? isGovtService : "") as "" | "Y" | "N"
       };
     });
 
@@ -644,6 +641,223 @@ function parseOtherInfo(value: string): OtherInfoEntry[] {
   return parsed.length > 0 ? parsed : [createOtherInfoEntry()];
 }
 
+type ApplicantExportLineKind = "title" | "section" | "subsection" | "bullet" | "text";
+
+type ApplicantExportLine = {
+  text: string;
+  kind: ApplicantExportLineKind;
+};
+
+function formatExportValue(value: string | undefined | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : "N/A";
+}
+
+function hasMeaningfulValue(value: string | undefined | null) {
+  return Boolean(value?.trim());
+}
+
+function buildApplicantExportLines(applicant: Applicant, applications: Application[], documents: ApplicantDocument[]) {
+  const lines: ApplicantExportLine[] = [];
+  const push = (text: string, kind: ApplicantExportLineKind = "text") => {
+    lines.push({ text, kind });
+  };
+  const pushField = (label: string, value: string | undefined | null) => {
+    push(`${label}: ${formatExportValue(value)}`, "bullet");
+  };
+
+  const children = parseChildrenInfo(applicant.childrenInfo || "").filter((child) => hasMeaningfulValue(child.fullName) || hasMeaningfulValue(child.dateOfBirth));
+  const educationRows = parseEducationalBackground(applicant.educationalBackground || "").filter((row) =>
+    hasMeaningfulValue(row.level) ||
+    hasMeaningfulValue(row.schoolName) ||
+    hasMeaningfulValue(row.degreeCourse) ||
+    hasMeaningfulValue(row.attendanceFrom) ||
+    hasMeaningfulValue(row.attendanceTo) ||
+    hasMeaningfulValue(row.highestLevelUnitsEarned) ||
+    hasMeaningfulValue(row.yearGraduated) ||
+    hasMeaningfulValue(row.scholarshipHonors)
+  );
+  const civilServiceRows = parseCivilServiceEligibility(applicant.civilServiceEligibility || "").filter((row) =>
+    hasMeaningfulValue(row.eligibility) || hasMeaningfulValue(row.rating) || hasMeaningfulValue(row.examDate) || hasMeaningfulValue(row.examPlace) || hasMeaningfulValue(row.licenseNumber) || hasMeaningfulValue(row.licenseValidUntil)
+  );
+  const workRows = parseWorkExperience(applicant.workExperience || "").filter((row) =>
+    hasMeaningfulValue(row.positionTitle) || hasMeaningfulValue(row.departmentAgencyOfficeCompany) || hasMeaningfulValue(row.dateFrom) || hasMeaningfulValue(row.dateTo) || hasMeaningfulValue(row.statusOfAppointment) || hasMeaningfulValue(row.isGovtService)
+  );
+  const voluntaryRows = parseVoluntaryWork(applicant.voluntaryWork || "").filter((row) =>
+    hasMeaningfulValue(row.organizationNameAddress) || hasMeaningfulValue(row.dateFrom) || hasMeaningfulValue(row.dateTo) || hasMeaningfulValue(row.numberOfHours) || hasMeaningfulValue(row.positionNatureOfWork)
+  );
+  const trainingRows = parseTrainings(applicant.trainings || "").filter((row) =>
+    hasMeaningfulValue(row.title) || hasMeaningfulValue(row.dateFrom) || hasMeaningfulValue(row.dateTo) || hasMeaningfulValue(row.numberOfHours) || hasMeaningfulValue(row.typeOfLd) || hasMeaningfulValue(row.conductedSponsoredBy)
+  );
+  const otherInfoRows = parseOtherInfo(applicant.otherInfo || "").filter((row) =>
+    hasMeaningfulValue(row.specialSkillsHobbies) || hasMeaningfulValue(row.nonAcademicDistinctionsRecognition) || hasMeaningfulValue(row.membershipsAssociationOrganization)
+  );
+
+  push(applicant.fullName || "Applicant Profile", "title");
+  push(`Generated: ${new Date().toLocaleString()}`, "text");
+
+  push("I. Personal Information", "section");
+  pushField("Full Name", applicant.fullName);
+  pushField("Contact Number", applicant.contactNumber);
+  pushField("Telephone Number", applicant.telephoneNumber);
+  pushField("Email", applicant.email);
+  pushField("Address", applicant.address);
+  pushField("Permanent Address", applicant.permanentAddress);
+  pushField("Date of Birth", applicant.dateOfBirth);
+  pushField("Place of Birth", applicant.placeOfBirth);
+  pushField("Sex", applicant.sex);
+  pushField("Civil Status", applicant.civilStatus);
+  pushField("Citizenship", applicant.citizenship);
+  pushField("Citizenship Details", applicant.citizenshipDetails);
+  pushField("Height", applicant.height);
+  pushField("Weight", applicant.weight);
+  pushField("Blood Type", applicant.bloodType);
+  pushField("GSIS ID No.", applicant.gsisIdNo);
+  pushField("PhilSys No.", applicant.philsysNo);
+  pushField("PAG-IBIG No.", applicant.pagibigIdNo);
+  pushField("PhilHealth No.", applicant.philhealthNo);
+  pushField("SSS No.", applicant.sssNo);
+  pushField("TIN No.", applicant.tinNo);
+  pushField("Agency Employee No.", applicant.agencyEmployeeNo);
+
+  push("II. Family Background", "section");
+  push("Spouse Information", "subsection");
+  pushField("Name", [applicant.spouseSurname, applicant.spouseFirstName, applicant.spouseMiddleName, applicant.spouseNameExtension].filter(Boolean).join(" "));
+  pushField("Occupation", applicant.spouseOccupation);
+  pushField("Employer/Business Name", applicant.spouseEmployerBusinessName);
+  pushField("Business Address", applicant.spouseBusinessAddress);
+  pushField("Telephone", applicant.spouseTelephoneNo);
+  push("Father's Information", "subsection");
+  pushField("Name", [applicant.fatherSurname, applicant.fatherFirstName, applicant.fatherMiddleName, applicant.fatherNameExtension].filter(Boolean).join(" "));
+  push("Mother's Information (Maiden Name)", "subsection");
+  pushField("Name", [applicant.motherSurname, applicant.motherFirstName, applicant.motherMiddleName].filter(Boolean).join(" "));
+  push("Children", "subsection");
+  if (children.length > 0) {
+    children.forEach((child, index) => {
+      push(`Child ${index + 1}`, "bullet");
+      pushField("Full Name", child.fullName);
+      pushField("Date of Birth", child.dateOfBirth);
+    });
+  } else {
+    push("No children listed.", "text");
+  }
+
+  push("III. Educational Background", "section");
+  if (educationRows.length > 0) {
+    educationRows.forEach((edu, index) => {
+      push(`Education Record ${index + 1}`, "subsection");
+      pushField("Level", edu.level);
+      pushField("School", edu.schoolName);
+      pushField("Degree / Course", edu.degreeCourse);
+      pushField("Attendance From", edu.attendanceFrom);
+      pushField("Attendance To", edu.attendanceTo);
+      pushField("Highest Level / Units Earned", edu.highestLevelUnitsEarned);
+      pushField("Year Graduated", edu.yearGraduated);
+      pushField("Scholarship / Honors", edu.scholarshipHonors);
+    });
+  } else {
+    push("No educational background listed.", "text");
+  }
+
+  push("IV. Civil Service Eligibility", "section");
+  if (civilServiceRows.length > 0) {
+    civilServiceRows.forEach((entry, index) => {
+      push(`Eligibility Record ${index + 1}`, "subsection");
+      pushField("Eligibility", entry.eligibility);
+      pushField("Rating", entry.rating);
+      pushField("Date of Examination / Confinement", entry.examDate);
+      pushField("Place of Examination / Confinement", entry.examPlace);
+      pushField("License Number", entry.licenseNumber);
+      pushField("Date of Validity", entry.licenseValidUntil);
+    });
+  } else {
+    push("No civil service eligibility listed.", "text");
+  }
+
+  push("V. Work Experience", "section");
+  if (workRows.length > 0) {
+    workRows.forEach((entry, index) => {
+      push(`Work Record ${index + 1}`, "subsection");
+      pushField("Inclusive Dates From", entry.dateFrom);
+      pushField("Inclusive Dates To", entry.dateTo);
+      pushField("Position Title", entry.positionTitle);
+      pushField("Department / Agency / Office / Company", entry.departmentAgencyOfficeCompany);
+      pushField("Status of Appointment", entry.statusOfAppointment);
+      pushField("Gov't Service", entry.isGovtService === "Y" ? "Yes" : entry.isGovtService === "N" ? "No" : "N/A");
+    });
+  } else {
+    push("No work experience listed.", "text");
+  }
+
+  push("VI. Voluntary Work or Involvement in Civic/Non-Government/People/Voluntary Organizations", "section");
+  if (voluntaryRows.length > 0) {
+    voluntaryRows.forEach((entry, index) => {
+      push(`Voluntary Work Record ${index + 1}`, "subsection");
+      pushField("Organization Name / Address", entry.organizationNameAddress);
+      pushField("Inclusive Dates From", entry.dateFrom);
+      pushField("Inclusive Dates To", entry.dateTo);
+      pushField("Number of Hours", entry.numberOfHours);
+      pushField("Position / Nature of Work", entry.positionNatureOfWork);
+    });
+  } else {
+    push("No voluntary work listed.", "text");
+  }
+
+  push("VII. Learning and Development (L&D) Interventions/Training Programs Attended", "section");
+  if (trainingRows.length > 0) {
+    trainingRows.forEach((entry, index) => {
+      push(`Training Record ${index + 1}`, "subsection");
+      pushField("Title", entry.title);
+      pushField("Inclusive Dates From", entry.dateFrom);
+      pushField("Inclusive Dates To", entry.dateTo);
+      pushField("Number of Hours", entry.numberOfHours);
+      pushField("Type of L&D", entry.typeOfLd);
+      pushField("Conducted / Sponsored By", entry.conductedSponsoredBy);
+    });
+  } else {
+    push("No training records listed.", "text");
+  }
+
+  push("VIII. Other Information", "section");
+  if (otherInfoRows.length > 0) {
+    otherInfoRows.forEach((entry, index) => {
+      push(`Other Information Record ${index + 1}`, "subsection");
+      pushField("Special Skills / Hobbies", entry.specialSkillsHobbies);
+      pushField("Non-Academic Distinctions / Recognition", entry.nonAcademicDistinctionsRecognition);
+      pushField("Memberships / Associations / Organization", entry.membershipsAssociationOrganization);
+    });
+  } else {
+    push("No other information listed.", "text");
+  }
+  pushField("References", applicant.referencesInfo);
+
+  push("IX. Applications", "section");
+  if (applications.length > 0) {
+    applications.forEach((app, index) => {
+      push(`Application ${index + 1}`, "subsection");
+      pushField("Vacancy ID", app.vacancyId);
+      pushField("Status", app.status);
+      pushField("Date Applied", app.dateApplied);
+      pushField("Remarks", app.remarks);
+    });
+  } else {
+    push("No applications listed.", "text");
+  }
+
+  push("X. Submitted Documents", "section");
+  if (documents.length > 0) {
+    documents.forEach((doc, index) => {
+      push(`Document ${index + 1}`, "subsection");
+      pushField("Name", doc.originalName);
+      pushField("Type", doc.docType);
+    });
+  } else {
+    push("No submitted documents listed.", "text");
+  }
+
+  return lines;
+}
+
 function SearchableSelect({
   value,
   onValueChange,
@@ -839,6 +1053,7 @@ export default function Applicants() {
     dateApplied: new Date().toISOString().split("T")[0]
   });
   const [isScanningResume, setIsScanningResume] = useState(false);
+  const [isExportingApplicant, setIsExportingApplicant] = useState(false);
   const createSectionIds = [
     "create-section-1",
     "create-section-2",
@@ -898,6 +1113,110 @@ export default function Applicants() {
     queryFn: () => (editingApplicantId ? fetchApplicantDocuments(editingApplicantId) : Promise.resolve([])),
     enabled: !!editingApplicantId
   });
+
+  const handleExportApplicant = async (format: "pdf" | "docx") => {
+    if (!viewingApplicantId) return;
+
+    const applicant = applicants.find((entry) => entry.id === viewingApplicantId);
+    if (!applicant) {
+      toast({ title: "Export failed", description: "Applicant not found.", variant: "destructive" });
+      return;
+    }
+
+    setIsExportingApplicant(true);
+    try {
+      const relatedApplications = applications.filter((application) => application.applicantId === applicant.id);
+      const lines = buildApplicantExportLines(applicant, relatedApplications, applicantDocuments);
+      const fileNameBase = `${applicant.fullName || "applicant"}`
+        .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\s+/g, "_") || "applicant";
+
+      if (format === "pdf") {
+        const { jsPDF } = await import("jspdf");
+        const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+        const margin = 40;
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const maxWidth = pageWidth - margin * 2;
+        let cursorY = margin;
+
+        const ensureSpace = (requiredHeight: number) => {
+          if (cursorY + requiredHeight <= pageHeight - margin) return;
+          pdf.addPage();
+          cursorY = margin;
+        };
+
+        lines.forEach((line) => {
+          const isTitle = line.kind === "title";
+          const isSection = line.kind === "section";
+          const isSubsection = line.kind === "subsection";
+          const fontSize = isTitle ? 16 : isSection ? 12.5 : isSubsection ? 10.5 : 10;
+          const indent = line.kind === "bullet" ? 14 : line.kind === "subsection" ? 6 : 0;
+          const prefix = line.kind === "bullet" ? "- " : "";
+          pdf.setFont("helvetica", isTitle || isSection || isSubsection ? "bold" : "normal");
+          pdf.setFontSize(fontSize);
+          const wrapped = pdf.splitTextToSize(`${prefix}${line.text}`, maxWidth - indent);
+          const lineHeight = fontSize + 4;
+          ensureSpace(wrapped.length * lineHeight + (isTitle || isSection ? 8 : 2));
+          wrapped.forEach((part: string) => {
+            ensureSpace(lineHeight);
+            pdf.text(part, margin + indent, cursorY);
+            cursorY += lineHeight;
+          });
+          if (isTitle || isSection) {
+            cursorY += 4;
+          }
+        });
+
+        pdf.save(`${fileNameBase}.pdf`);
+      } else {
+        const { AlignmentType, Document, HeadingLevel, Packer, Paragraph, TextRun } = await import("docx");
+        const doc = new Document({
+          sections: [
+            {
+              children: lines.map((line) => {
+                const isTitle = line.kind === "title";
+                const isSection = line.kind === "section";
+                const isSubsection = line.kind === "subsection";
+                return new Paragraph({
+                  heading: isSection ? HeadingLevel.HEADING_1 : isSubsection ? HeadingLevel.HEADING_2 : undefined,
+                  alignment: isTitle ? AlignmentType.CENTER : undefined,
+                  spacing: { before: isTitle || isSection ? 160 : isSubsection ? 80 : 0, after: 80 },
+                  indent: line.kind === "bullet" ? { left: 360 } : undefined,
+                  children: [
+                    new TextRun({
+                      text: line.kind === "bullet" ? `- ${line.text}` : line.text,
+                      bold: isTitle || isSection || isSubsection
+                    })
+                  ]
+                });
+              })
+            }
+          ]
+        });
+
+        const blob = await Packer.toBlob(doc);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${fileNameBase}.docx`;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+
+      toast({ title: "Export complete", description: `Applicant exported as ${format.toUpperCase()} successfully.` });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: (error as Error).message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsExportingApplicant(false);
+    }
+  };
 
   const selectedRegionName = useMemo(
     () => regionUnits.find((region) => region.code === addressParts.regionCode)?.name ?? "",
@@ -3413,14 +3732,40 @@ export default function Applicants() {
           }
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           {viewingApplicantId && (() => {
             const applicant = applicants.find((a) => a.id === viewingApplicantId);
             if (!applicant) return null;
             const apps = getApplicantApplications(applicant.id);
             return (
               <>
-                <DialogHeader><DialogTitle>{applicant.fullName}</DialogTitle></DialogHeader>
+                <DialogHeader className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <DialogTitle className="pr-2">{applicant.fullName}</DialogTitle>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { void handleExportApplicant("pdf"); }}
+                        disabled={isExportingApplicant}
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        PDF
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { void handleExportApplicant("docx"); }}
+                        disabled={isExportingApplicant}
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        DOCX
+                      </Button>
+                    </div>
+                  </div>
+                </DialogHeader>
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <div className="flex items-center gap-2 text-muted-foreground">

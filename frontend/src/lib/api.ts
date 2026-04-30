@@ -165,8 +165,38 @@ export async function fetchDepartments() {
   return apiFetch<Department[]>("/departments");
 }
 
+export async function createDepartment(name: string) {
+  return apiFetch<Department>("/departments", {
+    method: "POST",
+    body: JSON.stringify({ name })
+  });
+}
+
+export async function deleteDepartment(id: string) {
+  return apiFetch<{ deleted: number }>(`/departments/${id}`, { method: "DELETE" });
+}
+
 export async function fetchPositionTitles() {
   return apiFetch<string[]>("/position-titles");
+}
+
+export async function fetchCustomPositionTitles() {
+  return apiFetch<{ id: string; title: string }[]>("/position-titles/custom");
+}
+
+export async function createPositionTitle(title: string) {
+  return apiFetch<{ id: string; title: string }>("/position-titles", {
+    method: "POST",
+    body: JSON.stringify({ title })
+  });
+}
+
+export async function deletePositionTitle(id: string) {
+  return apiFetch<void>(`/position-titles/${id}`, { method: "DELETE" });
+}
+
+export async function deleteJobsByTitle(title: string) {
+  return apiFetch<{ deleted: number }>(`/jobs/by-title/${encodeURIComponent(title)}`, { method: "DELETE" });
 }
 
 export async function fetchJobs() {
@@ -363,3 +393,4 @@ export async function fetchReportsSummary() {
     vacanciesByStatus: Array<{ status: string; count: number }>;
   }>("/reports/summary");
 }
+

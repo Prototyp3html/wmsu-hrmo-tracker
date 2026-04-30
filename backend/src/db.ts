@@ -39,12 +39,25 @@ export async function initDb() {
       id TEXT PRIMARY KEY,
       position_title TEXT NOT NULL,
       department_id TEXT NOT NULL REFERENCES departments(id),
+      plantilla_no TEXT NOT NULL DEFAULT '',
+      monthly_rate TEXT NOT NULL DEFAULT '',
       salary_grade INTEGER NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      eligibility TEXT NOT NULL DEFAULT '',
+      trainings TEXT NOT NULL DEFAULT '',
+      competencies TEXT NOT NULL DEFAULT '',
+      educational_background TEXT NOT NULL DEFAULT '',
+      work_experience TEXT NOT NULL DEFAULT '',
       qualifications TEXT NOT NULL,
       posting_date TEXT NOT NULL,
       closing_date TEXT NOT NULL,
       status TEXT NOT NULL,
       position_level TEXT DEFAULT 'first_level'
+    );
+
+    CREATE TABLE IF NOT EXISTS position_titles (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL UNIQUE
     );
 
     CREATE TABLE IF NOT EXISTS applicants (
@@ -185,6 +198,7 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_position_titles_title ON position_titles(title);
   `);
 
   // Add position_level column if it doesn't exist (for existing databases)
@@ -194,6 +208,19 @@ export async function initDb() {
   `).catch(() => {
     // Ignore errors if column already exists
   });
+
+  // Add extended vacancy fields for legacy databases
+  await query(`
+    ALTER TABLE job_vacancies
+    ADD COLUMN IF NOT EXISTS plantilla_no TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS monthly_rate TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS eligibility TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS trainings TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS competencies TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS educational_background TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS work_experience TEXT NOT NULL DEFAULT '';
+  `).catch(() => {});
 
   // Add user activation flag for existing databases
   await query(`

@@ -182,8 +182,16 @@ function mapJob(row: any) {
     id: row.id,
     positionTitle: row.position_title,
     departmentId: row.department_id,
+    plantillaNo: row.plantilla_no ?? "",
+    monthlyRate: row.monthly_rate ?? "",
     salaryGrade: row.salary_grade,
-    qualifications: row.qualifications,
+    description: row.description ?? row.qualifications ?? "",
+    eligibility: row.eligibility ?? "",
+    trainings: row.trainings ?? "",
+    competencies: row.competencies ?? "",
+    educationalBackground: row.educational_background ?? "",
+    workExperience: row.work_experience ?? "",
+    qualifications: row.qualifications ?? row.description ?? "",
     postingDate: row.posting_date,
     closingDate: row.closing_date,
     status: row.status,
@@ -196,10 +204,53 @@ function mapApplicant(row: any) {
     id: row.id,
     fullName: row.full_name,
     contactNumber: row.contact_number,
+    telephoneNumber: row.telephone_number ?? "",
     email: row.email,
     address: row.address,
-    educationalBackground: row.educational_background,
-    workExperience: row.work_experience
+    permanentAddress: row.permanent_address ?? "",
+    dateOfBirth: row.date_of_birth ?? "",
+    placeOfBirth: row.place_of_birth ?? "",
+    sex: row.sex ?? "",
+    civilStatus: row.civil_status ?? "",
+    citizenship: row.citizenship ?? "",
+    height: row.height ?? "",
+    weight: row.weight ?? "",
+    bloodType: row.blood_type ?? "",
+    gsisIdNo: row.gsis_id_no ?? "",
+    philsysNo: row.philsys_no ?? "",
+    pagibigIdNo: row.pagibig_id_no ?? "",
+    philhealthNo: row.philhealth_no ?? "",
+    citizenshipDetails: row.citizenship_details ?? "",
+    sssNo: row.sss_no ?? "",
+    tinNo: row.tin_no ?? "",
+    agencyEmployeeNo: row.agency_employee_no ?? "",
+    spouseName: row.spouse_name ?? "",
+    spouseSurname: row.spouse_surname ?? "",
+    spouseFirstName: row.spouse_first_name ?? "",
+    spouseMiddleName: row.spouse_middle_name ?? "",
+    spouseNameExtension: row.spouse_name_extension ?? "",
+    spouseOccupation: row.spouse_occupation ?? "",
+    spouseEmployerBusinessName: row.spouse_employer_business_name ?? "",
+    spouseBusinessAddress: row.spouse_business_address ?? "",
+    spouseTelephoneNo: row.spouse_telephone_no ?? "",
+    childrenInfo: row.children_info ?? "",
+    fatherName: row.father_name ?? "",
+    fatherSurname: row.father_surname ?? "",
+    fatherFirstName: row.father_first_name ?? "",
+    fatherMiddleName: row.father_middle_name ?? "",
+    fatherNameExtension: row.father_name_extension ?? "",
+    motherName: row.mother_name ?? "",
+    motherSurname: row.mother_surname ?? "",
+    motherFirstName: row.mother_first_name ?? "",
+    motherMiddleName: row.mother_middle_name ?? "",
+    civilServiceEligibility: row.civil_service_eligibility ?? "",
+    voluntaryWork: row.voluntary_work ?? "",
+    trainings: row.trainings ?? "",
+    otherInfo: row.other_info ?? "",
+    referencesInfo: row.references_info ?? "",
+    educationalBackground: row.educational_background ?? "",
+    workExperience: row.work_experience ?? "",
+    applicationId: row.application_id ?? undefined
   };
 }
 
@@ -1180,16 +1231,134 @@ app.get("/api/departments", asyncHandler(async (_req, res) => {
   res.json(rows.rows);
 }));
 
+app.post("/api/departments", requireAuth, requireAdmin, asyncHandler(async (req: AuthedRequest, res) => {
+  const name = String(req.body.name ?? "").trim();
+  if (!name) {
+    res.status(400).json({ error: "Department name is required" });
+    return;
+  }
+
+  const existing = await query<{ id: string; name: string }>(
+    "SELECT id, name FROM departments WHERE LOWER(name) = LOWER($1) LIMIT 1",
+    [name]
+  );
+  if ((existing.rowCount ?? 0) > 0) {
+    res.status(200).json(existing.rows[0]);
+    return;
+  }
+
+  const id = randomUUID();
+  await query("INSERT INTO departments (id, name) VALUES ($1, $2)", [id, name]);
+  res.status(201).json({ id, name });
+}));
+
+app.delete("/api/departments/:id", requireAuth, requireAdmin, asyncHandler(async (req: AuthedRequest, res) => {
+  const departmentId = String(req.params.id ?? "").trim();
+  if (!departmentId) {
+    res.status(400).json({ error: "Department id is required" });
+    return;
+  }
+
+  const usage = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+       FROM applications app
+       INNER JOIN job_vacancies job ON job.id = app.vacancy_id
+      WHERE job.department_id = $1`,
+    [departmentId]
+  );
+  const count = Number(usage.rows[0]?.count ?? "0");
+  if (count > 0) {
+    res.status(409).json({ error: "Department is in use" });
+    return;
+  }
+
+  const deletedVacancies = await query("DELETE FROM job_vacancies WHERE department_id = $1", [departmentId]);
+
+  const result = await query("DELETE FROM departments WHERE id = $1", [departmentId]);
+  if (result.rowCount === 0) {
+    res.status(404).json({ error: "Department not found" });
+    return;
+  }
+
+  res.json({ deleted: deletedVacancies.rowCount ?? 0 });
+}));
+
 app.get("/api/position-titles", asyncHandler(async (_req, res) => {
+  // include titles from job_vacancies and persisted custom position_titles table
   const rows = await query<{ position_title: string }>(
-    "SELECT DISTINCT position_title FROM job_vacancies WHERE position_title IS NOT NULL ORDER BY position_title"
+    "SELECT DISTINCT position_title FROM job_vacancies WHERE position_title IS NOT NULL"
   );
   const dynamicTitles = rows.rows
     .map((row) => row.position_title?.trim())
     .filter((title): title is string => Boolean(title));
-  const merged = Array.from(new Set([...DEFAULT_POSITION_TITLES, ...dynamicTitles]))
+
+  const customRows = await query<{ id: string; title: string }>("SELECT id, title FROM position_titles ORDER BY title");
+  const customTitles = customRows.rows.map((r) => r.title?.trim()).filter((t): t is string => Boolean(t));
+
+  const merged = Array.from(new Set([...DEFAULT_POSITION_TITLES, ...dynamicTitles, ...customTitles]))
     .sort((a, b) => a.localeCompare(b));
   res.json(merged);
+}));
+
+app.get("/api/position-titles/custom", requireAuth, requireAdmin, asyncHandler(async (_req, res) => {
+  const rows = await query<{ id: string; title: string }>("SELECT id, title FROM position_titles ORDER BY title");
+  res.json(rows.rows.map((r) => ({ id: r.id, title: r.title })));
+}));
+
+app.post("/api/position-titles", requireAuth, requireAdmin, asyncHandler(async (req: AuthedRequest, res) => {
+  const title = String(req.body.title ?? "").trim();
+  if (!title) {
+    res.status(400).json({ error: "Title is required" });
+    return;
+  }
+
+  const id = randomUUID();
+  try {
+    await query("INSERT INTO position_titles (id, title) VALUES ($1, $2)", [id, title]);
+    res.status(201).json({ id, title });
+  } catch (err) {
+    // Unique constraint
+    const existing = await query<{ id: string; title: string }>("SELECT id, title FROM position_titles WHERE LOWER(title)=LOWER($1)", [title]);
+    if (existing && (existing.rowCount ?? 0) > 0) {
+      res.status(200).json(existing.rows[0]);
+      return;
+    }
+    throw err;
+  }
+}));
+
+app.delete("/api/position-titles/:id", requireAuth, requireAdmin, asyncHandler(async (req: AuthedRequest, res) => {
+  const result = await query("DELETE FROM position_titles WHERE id = $1", [req.params.id]);
+  if (result.rowCount === 0) {
+    res.status(404).json({ error: "Position title not found" });
+    return;
+  }
+  res.status(204).send();
+}));
+
+app.delete("/api/jobs/by-title/:title", requireAuth, requireAdmin, asyncHandler(async (req: AuthedRequest, res) => {
+  const title = String(req.params.title ?? "").trim();
+  if (!title) {
+    res.status(400).json({ error: "Title is required" });
+    return;
+  }
+
+  const locked = await query(
+    `SELECT 1
+       FROM applications app
+       INNER JOIN job_vacancies job ON job.id = app.vacancy_id
+      WHERE LOWER(job.position_title) = LOWER($1)
+      LIMIT 1`,
+    [title]
+  );
+  if ((locked.rowCount ?? 0) > 0) {
+    res.status(409).json({ error: "Title is in use" });
+    return;
+  }
+
+  await query("DELETE FROM position_titles WHERE LOWER(title) = LOWER($1)", [title]);
+  const result = await query("DELETE FROM job_vacancies WHERE LOWER(position_title) = LOWER($1)", [title]);
+  res.json({ deleted: result.rowCount ?? 0 });
 }));
 
 app.get("/api/jobs", asyncHandler(async (_req, res) => {
@@ -1207,18 +1376,45 @@ app.get("/api/jobs/:id", asyncHandler(async (req, res) => {
 }));
 
 app.post("/api/jobs", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
-  const { positionTitle, departmentId, salaryGrade, qualifications, postingDate, closingDate, status, positionLevel } = req.body as any;
-  if (!positionTitle || !departmentId || !salaryGrade || !qualifications || !postingDate || !closingDate || !status) {
+  const {
+    positionTitle,
+    departmentId,
+    plantillaNo,
+    monthlyRate,
+    salaryGrade,
+    description,
+    eligibility,
+    trainings,
+    competencies,
+    educationalBackground,
+    workExperience,
+    qualifications,
+    postingDate,
+    closingDate,
+    status,
+    positionLevel
+  } = req.body as any;
+  if (!positionTitle || !departmentId || !salaryGrade || !postingDate || !closingDate || !status) {
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
+
+  const normalizedDescription = String(description ?? qualifications ?? "");
 
   const job = {
     id: randomUUID(),
     positionTitle,
     departmentId,
+    plantillaNo: String(plantillaNo ?? ""),
+    monthlyRate: String(monthlyRate ?? ""),
     salaryGrade,
-    qualifications,
+    description: normalizedDescription,
+    eligibility: String(eligibility ?? ""),
+    trainings: String(trainings ?? ""),
+    competencies: String(competencies ?? ""),
+    educationalBackground: String(educationalBackground ?? ""),
+    workExperience: String(workExperience ?? ""),
+    qualifications: normalizedDescription,
     postingDate,
     closingDate,
     status,
@@ -1226,18 +1422,72 @@ app.post("/api/jobs", requireAuth, asyncHandler(async (req: AuthedRequest, res) 
   };
 
   await query(
-    "INSERT INTO job_vacancies (id, position_title, department_id, salary_grade, qualifications, posting_date, closing_date, status, position_level) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-    [job.id, job.positionTitle, job.departmentId, job.salaryGrade, job.qualifications, job.postingDate, job.closingDate, job.status, job.positionLevel]
+    "INSERT INTO job_vacancies (id, position_title, department_id, plantilla_no, monthly_rate, salary_grade, description, eligibility, trainings, competencies, educational_background, work_experience, qualifications, posting_date, closing_date, status, position_level) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+    [
+      job.id,
+      job.positionTitle,
+      job.departmentId,
+      job.plantillaNo,
+      job.monthlyRate,
+      job.salaryGrade,
+      job.description,
+      job.eligibility,
+      job.trainings,
+      job.competencies,
+      job.educationalBackground,
+      job.workExperience,
+      job.qualifications,
+      job.postingDate,
+      job.closingDate,
+      job.status,
+      job.positionLevel
+    ]
   );
 
   res.status(201).json(job);
 }));
 
 app.put("/api/jobs/:id", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
-  const { positionTitle, departmentId, salaryGrade, qualifications, postingDate, closingDate, status, positionLevel } = req.body as any;
+  const {
+    positionTitle,
+    departmentId,
+    plantillaNo,
+    monthlyRate,
+    salaryGrade,
+    description,
+    eligibility,
+    trainings,
+    competencies,
+    educationalBackground,
+    workExperience,
+    qualifications,
+    postingDate,
+    closingDate,
+    status,
+    positionLevel
+  } = req.body as any;
+  const normalizedDescription = String(description ?? qualifications ?? "");
   const result = await query(
-    "UPDATE job_vacancies SET position_title=$2, department_id=$3, salary_grade=$4, qualifications=$5, posting_date=$6, closing_date=$7, status=$8, position_level=$9 WHERE id=$1 RETURNING *",
-    [req.params.id, positionTitle, departmentId, salaryGrade, qualifications, postingDate, closingDate, status, positionLevel ?? "first_level"]
+    "UPDATE job_vacancies SET position_title=$2, department_id=$3, plantilla_no=$4, monthly_rate=$5, salary_grade=$6, description=$7, eligibility=$8, trainings=$9, competencies=$10, educational_background=$11, work_experience=$12, qualifications=$13, posting_date=$14, closing_date=$15, status=$16, position_level=$17 WHERE id=$1 RETURNING *",
+    [
+      req.params.id,
+      positionTitle,
+      departmentId,
+      String(plantillaNo ?? ""),
+      String(monthlyRate ?? ""),
+      salaryGrade,
+      normalizedDescription,
+      String(eligibility ?? ""),
+      String(trainings ?? ""),
+      String(competencies ?? ""),
+      String(educationalBackground ?? ""),
+      String(workExperience ?? ""),
+      normalizedDescription,
+      postingDate,
+      closingDate,
+      status,
+      positionLevel ?? "first_level"
+    ]
   );
 
   if (result.rowCount === 0) {
@@ -1287,43 +1537,198 @@ app.post("/api/applicants/parse-document", requireAuth, parseUpload.single("file
 }));
 
 app.post("/api/applicants", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
-  const { fullName, contactNumber, email, address, educationalBackground, workExperience } = req.body as any;
-  if (!fullName || !contactNumber || !email || !address || !educationalBackground || !workExperience) {
+  const body = req.body as any;
+  const fullName = String(body.fullName ?? "").trim();
+  const contactNumber = String(body.contactNumber ?? "").trim();
+  const email = String(body.email ?? "").trim();
+  const address = String(body.address ?? "").trim();
+  if (!fullName || !contactNumber || !email || !address) {
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
 
-  const applicant = {
-    id: randomUUID(),
-    fullName,
-    contactNumber,
-    email,
-    address,
-    educationalBackground,
-    workExperience
-  };
+  // Provide safe defaults for NOT NULL columns
+  const educationalBackground = String(body.educationalBackground ?? "");
+  const workExperience = String(body.workExperience ?? "");
+  const telephoneNumber = String(body.telephoneNumber ?? "");
+  const permanentAddress = String(body.permanentAddress ?? "");
+  const dateOfBirth = String(body.dateOfBirth ?? "");
+  const placeOfBirth = String(body.placeOfBirth ?? "");
+  const sex = String(body.sex ?? "");
+  const civilStatus = String(body.civilStatus ?? "");
+  const citizenship = String(body.citizenship ?? "");
+  const height = String(body.height ?? "");
+  const weight = String(body.weight ?? "");
+  const bloodType = String(body.bloodType ?? "");
+  const gsisIdNo = String(body.gsisIdNo ?? "");
+  const philsysNo = String(body.philsysNo ?? "");
+  const pagibigIdNo = String(body.pagibigIdNo ?? "");
+  const philhealthNo = String(body.philhealthNo ?? "");
+  const citizenshipDetails = String(body.citizenshipDetails ?? "");
+  const sssNo = String(body.sssNo ?? "");
+  const tinNo = String(body.tinNo ?? "");
+  const agencyEmployeeNo = String(body.agencyEmployeeNo ?? "");
+  const spouseName = String(body.spouseName ?? "");
+  const spouseSurname = String(body.spouseSurname ?? "");
+  const spouseFirstName = String(body.spouseFirstName ?? "");
+  const spouseMiddleName = String(body.spouseMiddleName ?? "");
+  const spouseNameExtension = String(body.spouseNameExtension ?? "");
+  const spouseOccupation = String(body.spouseOccupation ?? "");
+  const spouseEmployerBusinessName = String(body.spouseEmployerBusinessName ?? "");
+  const spouseBusinessAddress = String(body.spouseBusinessAddress ?? "");
+  const spouseTelephoneNo = String(body.spouseTelephoneNo ?? "");
+  const childrenInfo = String(body.childrenInfo ?? "");
+  const fatherName = String(body.fatherName ?? "");
+  const fatherSurname = String(body.fatherSurname ?? "");
+  const fatherFirstName = String(body.fatherFirstName ?? "");
+  const fatherMiddleName = String(body.fatherMiddleName ?? "");
+  const fatherNameExtension = String(body.fatherNameExtension ?? "");
+  const motherName = String(body.motherName ?? "");
+  const motherSurname = String(body.motherSurname ?? "");
+  const motherFirstName = String(body.motherFirstName ?? "");
+  const motherMiddleName = String(body.motherMiddleName ?? "");
+  const civilServiceEligibility = String(body.civilServiceEligibility ?? "");
+  const voluntaryWork = String(body.voluntaryWork ?? "");
+  const trainings = String(body.trainings ?? "");
+  const otherInfo = String(body.otherInfo ?? "");
+  const referencesInfo = String(body.referencesInfo ?? "");
+
+  const applicantId = randomUUID();
 
   await query(
-    "INSERT INTO applicants (id, full_name, contact_number, email, address, educational_background, work_experience) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    `INSERT INTO applicants (
+      id, full_name, contact_number, telephone_number, email, address, permanent_address,
+      date_of_birth, place_of_birth, sex, civil_status, citizenship, height, weight, blood_type,
+      gsis_id_no, philsys_no, pagibig_id_no, philhealth_no, citizenship_details, sss_no, tin_no, agency_employee_no,
+      spouse_name, spouse_surname, spouse_first_name, spouse_middle_name, spouse_name_extension, spouse_occupation,
+      spouse_employer_business_name, spouse_business_address, spouse_telephone_no, children_info,
+      father_name, father_surname, father_first_name, father_middle_name, father_name_extension,
+      mother_name, mother_surname, mother_first_name, mother_middle_name,
+      civil_service_eligibility, voluntary_work, trainings, other_info, references_info,
+      educational_background, work_experience
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46)
+    `,
     [
-      applicant.id,
-      applicant.fullName,
-      applicant.contactNumber,
-      applicant.email,
-      applicant.address,
-      applicant.educationalBackground,
-      applicant.workExperience
+      applicantId,
+      fullName,
+      contactNumber,
+      telephoneNumber,
+      email,
+      address,
+      permanentAddress,
+      dateOfBirth,
+      placeOfBirth,
+      sex,
+      civilStatus,
+      citizenship,
+      height,
+      weight,
+      bloodType,
+      gsisIdNo,
+      philsysNo,
+      pagibigIdNo,
+      philhealthNo,
+      citizenshipDetails,
+      sssNo,
+      tinNo,
+      agencyEmployeeNo,
+      spouseName,
+      spouseSurname,
+      spouseFirstName,
+      spouseMiddleName,
+      spouseNameExtension,
+      spouseOccupation,
+      spouseEmployerBusinessName,
+      spouseBusinessAddress,
+      spouseTelephoneNo,
+      childrenInfo,
+      fatherName,
+      fatherSurname,
+      fatherFirstName,
+      fatherMiddleName,
+      fatherNameExtension,
+      motherName,
+      motherSurname,
+      motherFirstName,
+      motherMiddleName,
+      civilServiceEligibility,
+      voluntaryWork,
+      trainings,
+      otherInfo,
+      referencesInfo,
+      educationalBackground,
+      workExperience
     ]
   );
 
-  res.status(201).json(applicant);
+  res.status(201).json({ id: applicantId, fullName, contactNumber, email, address, educationalBackground, workExperience });
 }));
 
 app.put("/api/applicants/:id", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
-  const { fullName, contactNumber, email, address, educationalBackground, workExperience } = req.body as any;
+  const b = req.body as any;
   const result = await query(
-    "UPDATE applicants SET full_name=$2, contact_number=$3, email=$4, address=$5, educational_background=$6, work_experience=$7 WHERE id=$1 RETURNING *",
-    [req.params.id, fullName, contactNumber, email, address, educationalBackground, workExperience]
+    `UPDATE applicants SET
+      full_name=$2, contact_number=$3, telephone_number=$4, email=$5, address=$6, permanent_address=$7,
+      date_of_birth=$8, place_of_birth=$9, sex=$10, civil_status=$11, citizenship=$12, height=$13, weight=$14, blood_type=$15,
+      gsis_id_no=$16, philsys_no=$17, pagibig_id_no=$18, philhealth_no=$19, citizenship_details=$20, sss_no=$21, tin_no=$22, agency_employee_no=$23,
+      spouse_name=$24, spouse_surname=$25, spouse_first_name=$26, spouse_middle_name=$27, spouse_name_extension=$28, spouse_occupation=$29,
+      spouse_employer_business_name=$30, spouse_business_address=$31, spouse_telephone_no=$32, children_info=$33,
+      father_name=$34, father_surname=$35, father_first_name=$36, father_middle_name=$37, father_name_extension=$38,
+      mother_name=$39, mother_surname=$40, mother_first_name=$41, mother_middle_name=$42,
+      civil_service_eligibility=$43, voluntary_work=$44, trainings=$45, other_info=$46, references_info=$47,
+      educational_background=$48, work_experience=$49
+    WHERE id=$1 RETURNING *`,
+    [
+      req.params.id,
+      String(b.fullName ?? ""),
+      String(b.contactNumber ?? ""),
+      String(b.telephoneNumber ?? ""),
+      String(b.email ?? ""),
+      String(b.address ?? ""),
+      String(b.permanentAddress ?? ""),
+      String(b.dateOfBirth ?? ""),
+      String(b.placeOfBirth ?? ""),
+      String(b.sex ?? ""),
+      String(b.civilStatus ?? ""),
+      String(b.citizenship ?? ""),
+      String(b.height ?? ""),
+      String(b.weight ?? ""),
+      String(b.bloodType ?? ""),
+      String(b.gsisIdNo ?? ""),
+      String(b.philsysNo ?? ""),
+      String(b.pagibigIdNo ?? ""),
+      String(b.philhealthNo ?? ""),
+      String(b.citizenshipDetails ?? ""),
+      String(b.sssNo ?? ""),
+      String(b.tinNo ?? ""),
+      String(b.agencyEmployeeNo ?? ""),
+      String(b.spouseName ?? ""),
+      String(b.spouseSurname ?? ""),
+      String(b.spouseFirstName ?? ""),
+      String(b.spouseMiddleName ?? ""),
+      String(b.spouseNameExtension ?? ""),
+      String(b.spouseOccupation ?? ""),
+      String(b.spouseEmployerBusinessName ?? ""),
+      String(b.spouseBusinessAddress ?? ""),
+      String(b.spouseTelephoneNo ?? ""),
+      String(b.childrenInfo ?? ""),
+      String(b.fatherName ?? ""),
+      String(b.fatherSurname ?? ""),
+      String(b.fatherFirstName ?? ""),
+      String(b.fatherMiddleName ?? ""),
+      String(b.fatherNameExtension ?? ""),
+      String(b.motherName ?? ""),
+      String(b.motherSurname ?? ""),
+      String(b.motherFirstName ?? ""),
+      String(b.motherMiddleName ?? ""),
+      String(b.civilServiceEligibility ?? ""),
+      String(b.voluntaryWork ?? ""),
+      String(b.trainings ?? ""),
+      String(b.otherInfo ?? ""),
+      String(b.referencesInfo ?? ""),
+      String(b.educationalBackground ?? ""),
+      String(b.workExperience ?? "")
+    ]
   );
 
   if (result.rowCount === 0) {
@@ -2034,3 +2439,4 @@ start().catch((error) => {
   console.error("Failed to start API", error);
   process.exit(1);
 });
+

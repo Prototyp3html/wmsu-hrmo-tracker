@@ -17,7 +17,15 @@ export interface JobVacancy {
   id: string;
   positionTitle: string;
   departmentId: string;
+  plantillaNo?: string;
+  monthlyRate?: string;
   salaryGrade: number;
+  description?: string;
+  eligibility?: string;
+  trainings?: string;
+  competencies?: string;
+  educationalBackground?: string;
+  workExperience?: string;
   qualifications: string;
   postingDate: string;
   closingDate: string;

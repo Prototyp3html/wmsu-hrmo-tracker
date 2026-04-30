@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createJob, fetchDepartments, fetchJobs, fetchPositionTitles, updateJob, deleteJob } from "@/lib/api";
+import { createDepartment, createJob, deleteDepartment, fetchDepartments, fetchJobs, fetchPositionTitles, updateJob, deleteJob, deleteJobsByTitle, createPositionTitle, fetchCustomPositionTitles, fetchApplications } from "@/lib/api";
 import { getVacancyStatusColor } from "@/lib/status";
 import type { JobVacancy } from "@/lib/types";
 import { Plus, Search, Pencil, Eye, Trash2, Ellipsis } from "lucide-react";
@@ -23,6 +23,24 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
 const ADD_NEW_POSITION_VALUE = "__add_new_position__";
+
+const DEFAULT_POSITION_TITLES = [
+  "Instructor III",
+  "Information Technology Officer I Repost",
+  "Attorney IV",
+  "Information Officer I",
+  "Administrative Aide VI (Clerk III)",
+  "Project Development Officer I",
+  "Internal Auditor I",
+  "Administrative Assistant III (Senior Bookkeeper)",
+  "Administrative Assistant III",
+  "SUC Vice President",
+  "Board Secretary V",
+  "Chief Administrative Officer",
+  "Administrative Aide VI",
+  "Administrative Assistant II",
+  "Administrative Officer I"
+];
 
 const TEST_SALARY_GRADE_BY_TITLE: Record<string, number> = {
   "instructor iii": 14,
@@ -56,11 +74,25 @@ export default function JobVacancies() {
   const [showEditCustomTitle, setShowEditCustomTitle] = useState(false);
   const [createCustomTitle, setCreateCustomTitle] = useState("");
   const [editCustomTitle, setEditCustomTitle] = useState("");
+  const [showManageTitles, setShowManageTitles] = useState(false);
+  const [showCreateCustomDepartment, setShowCreateCustomDepartment] = useState(false);
+  const [showEditCustomDepartment, setShowEditCustomDepartment] = useState(false);
+  const [createCustomDepartment, setCreateCustomDepartment] = useState("");
+  const [editCustomDepartment, setEditCustomDepartment] = useState("");
+  const [showManageDepartments, setShowManageDepartments] = useState(false);
   const [customPositionTitles, setCustomPositionTitles] = useState<string[]>([]);
   const [formState, setFormState] = useState({
     positionTitle: "",
     departmentId: "",
+    plantillaNo: "",
+    monthlyRate: "",
     salaryGrade: "",
+    description: "",
+    eligibility: "",
+    trainings: "",
+    competencies: "",
+    educationalBackground: "",
+    workExperience: "",
     qualifications: "",
     postingDate: "",
     closingDate: "",
@@ -70,7 +102,15 @@ export default function JobVacancies() {
   const [editFormState, setEditFormState] = useState({
     positionTitle: "",
     departmentId: "",
+    plantillaNo: "",
+    monthlyRate: "",
     salaryGrade: "",
+    description: "",
+    eligibility: "",
+    trainings: "",
+    competencies: "",
+    educationalBackground: "",
+    workExperience: "",
     qualifications: "",
     postingDate: "",
     closingDate: "",
@@ -93,6 +133,11 @@ export default function JobVacancies() {
     queryFn: fetchPositionTitles
   });
 
+  const { data: applications = [] } = useQuery({
+    queryKey: ["applications"],
+    queryFn: fetchApplications
+  });
+
   const positionTitleOptions = useMemo(() => {
     return Array.from(new Set([
       ...positionTitles,
@@ -105,7 +150,7 @@ export default function JobVacancies() {
       .sort((a, b) => a.localeCompare(b));
   }, [positionTitles, jobVacancies, customPositionTitles, formState.positionTitle, editFormState.positionTitle]);
 
-  const registerCustomPositionTitle = (rawTitle: string) => {
+  const registerCustomPositionTitle = async (rawTitle: string) => {
     const title = rawTitle.trim();
     if (!title) {
       toast({ title: "Missing title", description: "Please enter a position title first.", variant: "destructive" });
@@ -113,15 +158,31 @@ export default function JobVacancies() {
     }
 
     const exists = positionTitleOptions.some((existing) => existing.toLowerCase() === title.toLowerCase());
-    if (!exists) {
-      setCustomPositionTitles((prev) => [...prev, title]);
-      toast({ title: "Position title added", description: `${title} is now available in the dropdown.` });
-      return title;
+    if (exists) {
+      const existingTitle = positionTitleOptions.find((existing) => existing.toLowerCase() === title.toLowerCase()) ?? title;
+      toast({ title: "Already exists", description: `${existingTitle} is already in the dropdown.` });
+      return existingTitle;
     }
 
-    const existingTitle = positionTitleOptions.find((existing) => existing.toLowerCase() === title.toLowerCase()) ?? title;
-    toast({ title: "Already exists", description: `${existingTitle} is already in the dropdown.` });
-    return existingTitle;
+    // Persist the custom title to the server (requires admin)
+    try {
+      const created = await createPositionTitle(title);
+      setCustomPositionTitles((prev) => Array.from(new Set([...prev, created.title])));
+      queryClient.setQueryData<{ id: string; title: string }[]>(["position-titles-custom"], (current) => {
+        const next = current ?? [];
+        if (next.some((item) => item.id === created.id || item.title.toLowerCase() === created.title.toLowerCase())) {
+          return next;
+        }
+        return [...next, created];
+      });
+      // refresh cached position titles
+      queryClient.invalidateQueries({ queryKey: ["position-titles"] });
+      toast({ title: "Position title added", description: `${created.title} is now available in the dropdown.` });
+      return created.title;
+    } catch (err) {
+      toast({ title: "Add failed", description: (err as Error).message, variant: "destructive" });
+      return null;
+    }
   };
 
   const salaryGradeByTitle = useMemo(() => {
@@ -153,9 +214,11 @@ export default function JobVacancies() {
   };
 
   const handleAddCreateCustomTitle = () => {
-    const title = registerCustomPositionTitle(createCustomTitle);
-    if (!title) return;
-    applyCreateTitle(title);
+    (async () => {
+      const title = await registerCustomPositionTitle(createCustomTitle);
+      if (!title) return;
+      applyCreateTitle(title);
+    })();
   };
 
   const applyEditTitle = (title: string) => {
@@ -176,9 +239,55 @@ export default function JobVacancies() {
   };
 
   const handleAddEditCustomTitle = () => {
-    const title = registerCustomPositionTitle(editCustomTitle);
-    if (!title) return;
-    applyEditTitle(title);
+    (async () => {
+      const title = await registerCustomPositionTitle(editCustomTitle);
+      if (!title) return;
+      applyEditTitle(title);
+    })();
+  };
+
+  const registerCustomDepartment = async (rawName: string) => {
+    const name = rawName.trim();
+    if (!name) {
+      toast({ title: "Missing department", description: "Please enter a department name first.", variant: "destructive" });
+      return null;
+    }
+
+    const existing = departments.find((d) => d.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      toast({ title: "Already exists", description: `${existing.name} is already in the list.` });
+      return existing;
+    }
+
+    try {
+      const created = await createDepartment(name);
+      queryClient.invalidateQueries({ queryKey: ["departments"] });
+      toast({ title: "Department added", description: `${created.name} is now available.` });
+      return created;
+    } catch (err) {
+      toast({ title: "Add failed", description: (err as Error).message, variant: "destructive" });
+      return null;
+    }
+  };
+
+  const handleAddCreateCustomDepartment = () => {
+    (async () => {
+      const department = await registerCustomDepartment(createCustomDepartment);
+      if (!department) return;
+      setFormState((prev) => ({ ...prev, departmentId: department.id }));
+      setShowCreateCustomDepartment(false);
+      setCreateCustomDepartment("");
+    })();
+  };
+
+  const handleAddEditCustomDepartment = () => {
+    (async () => {
+      const department = await registerCustomDepartment(editCustomDepartment);
+      if (!department) return;
+      setEditFormState((prev) => ({ ...prev, departmentId: department.id }));
+      setShowEditCustomDepartment(false);
+      setEditCustomDepartment("");
+    })();
   };
 
   const createMutation = useMutation({
@@ -189,7 +298,15 @@ export default function JobVacancies() {
       setFormState({
         positionTitle: "",
         departmentId: "",
+        plantillaNo: "",
+        monthlyRate: "",
         salaryGrade: "",
+        description: "",
+        eligibility: "",
+        trainings: "",
+        competencies: "",
+        educationalBackground: "",
+        workExperience: "",
         qualifications: "",
         postingDate: "",
         closingDate: "",
@@ -201,6 +318,12 @@ export default function JobVacancies() {
     onError: (error) => {
       toast({ title: "Create failed", description: (error as Error).message, variant: "destructive" });
     }
+  });
+
+  const { refetch: refetchCustomTitles } = useQuery({
+    queryKey: ["position-titles-custom"],
+    queryFn: fetchCustomPositionTitles,
+    enabled: false // only fetch on demand when manage dialog opens
   });
 
   const updateMutation = useMutation({
@@ -239,6 +362,38 @@ export default function JobVacancies() {
     });
   }, [jobVacancies, search, filterDept, filterStatus]);
 
+  const titleApplicationCount = useMemo(() => {
+    const vacancyTitleById = new Map<string, string>();
+    for (const vacancy of jobVacancies) {
+      vacancyTitleById.set(vacancy.id, vacancy.positionTitle.trim().toLowerCase());
+    }
+
+    const map = new Map<string, number>();
+    for (const application of applications) {
+      const key = vacancyTitleById.get(application.vacancyId);
+      if (!key) continue;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+
+    return map;
+  }, [jobVacancies, applications]);
+
+  const departmentUsageCount = useMemo(() => {
+    const vacancyDepartmentById = new Map<string, string>();
+    for (const vacancy of jobVacancies) {
+      vacancyDepartmentById.set(vacancy.id, vacancy.departmentId);
+    }
+
+    const map = new Map<string, number>();
+    for (const application of applications) {
+      const departmentId = vacancyDepartmentById.get(application.vacancyId);
+      if (!departmentId) continue;
+      map.set(departmentId, (map.get(departmentId) ?? 0) + 1);
+    }
+
+    return map;
+  }, [jobVacancies, applications]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -251,14 +406,22 @@ export default function JobVacancies() {
             <DialogTrigger asChild>
               <Button><Plus className="w-4 h-4 mr-2" /> New Vacancy</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="w-[95vw] max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader><DialogTitle>Create Job Vacancy</DialogTitle></DialogHeader>
               <form className="space-y-4" onSubmit={(e) => {
                 e.preventDefault();
                 createMutation.mutate({
                   positionTitle: formState.positionTitle,
                   departmentId: formState.departmentId,
+                  plantillaNo: formState.plantillaNo,
+                  monthlyRate: formState.monthlyRate,
                   salaryGrade: Number(formState.salaryGrade),
+                  description: formState.description,
+                  eligibility: formState.eligibility,
+                  trainings: formState.trainings,
+                  competencies: formState.competencies,
+                  educationalBackground: formState.educationalBackground,
+                  workExperience: formState.workExperience,
                   qualifications: formState.qualifications,
                   postingDate: formState.postingDate,
                   closingDate: formState.closingDate,
@@ -270,39 +433,79 @@ export default function JobVacancies() {
                   <Label>Position Title</Label>
                   <Select value={formState.positionTitle} onValueChange={applyCreateTitle}>
                     <SelectTrigger><SelectValue placeholder="Select position title" /></SelectTrigger>
-                    <SelectContent>
-                      {positionTitleOptions.map((title) => <SelectItem key={title} value={title}>{title}</SelectItem>)}
-                      <SelectItem value={ADD_NEW_POSITION_VALUE}>+ Add new position title</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {showCreateCustomTitle && (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        placeholder="Enter new position title"
-                        value={createCustomTitle}
-                        onChange={(e) => setCreateCustomTitle(e.target.value)}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={!createCustomTitle.trim()}
-                        onClick={handleAddCreateCustomTitle}
-                      >
-                        Add
-                      </Button>
+                      <SelectContent>
+                        {positionTitleOptions.map((title) => <SelectItem key={title} value={title}>{title}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setShowCreateCustomTitle((s) => !s)}>+ Add new position title</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setShowManageTitles(true)}>Manage titles</Button>
                     </div>
-                  )}
+                    {showCreateCustomTitle && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <Input
+                          placeholder="Enter new position title"
+                          value={createCustomTitle}
+                          onChange={(e) => setCreateCustomTitle(e.target.value)}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={!createCustomTitle.trim()}
+                          onClick={handleAddCreateCustomTitle}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Department</Label>
+                  <Label>Office</Label>
                   <Select value={formState.departmentId} onValueChange={(value) => setFormState((prev) => ({ ...prev, departmentId: value }))}>
                     <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                     <SelectContent>
                       {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setShowCreateCustomDepartment((s) => !s)}>+ Add new department</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => setShowManageDepartments(true)}>Manage departments</Button>
+                  </div>
+                  {showCreateCustomDepartment && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <Input
+                        placeholder="Enter new department name"
+                        value={createCustomDepartment}
+                        onChange={(e) => setCreateCustomDepartment(e.target.value)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!createCustomDepartment.trim()}
+                        onClick={handleAddCreateCustomDepartment}
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  )}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Plantilla No.</Label>
+                    <Input
+                      placeholder="Enter plantilla number"
+                      value={formState.plantillaNo}
+                      onChange={(e) => setFormState((prev) => ({ ...prev, plantillaNo: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Monthly Rate</Label>
+                    <Input
+                      placeholder="Enter monthly rate"
+                      value={formState.monthlyRate}
+                      onChange={(e) => setFormState((prev) => ({ ...prev, monthlyRate: e.target.value }))}
+                    />
+                  </div>
                   <div className="space-y-2">
                     <Label>Salary Grade</Label>
                     <Input
@@ -312,17 +515,17 @@ export default function JobVacancies() {
                       onChange={(e) => setFormState((prev) => ({ ...prev, salaryGrade: e.target.value }))}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Status</Label>
-                    <Select value={formState.status} onValueChange={(value) => setFormState((prev) => ({ ...prev, status: value }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Open">Open</SelectItem>
-                        <SelectItem value="Closed">Closed</SelectItem>
-                        <SelectItem value="Filled">Filled</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select value={formState.status} onValueChange={(value) => setFormState((prev) => ({ ...prev, status: value }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Open">Open</SelectItem>
+                      <SelectItem value="Closed">Closed</SelectItem>
+                      <SelectItem value="Filled">Filled</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Position Level</Label>
@@ -353,11 +556,51 @@ export default function JobVacancies() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Qualification Requirements</Label>
+                  <Label>Description</Label>
                   <Textarea
-                    placeholder="Enter required qualifications..."
-                    value={formState.qualifications}
-                    onChange={(e) => setFormState((prev) => ({ ...prev, qualifications: e.target.value }))}
+                    placeholder="N/A"
+                    value={formState.description}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, description: e.target.value, qualifications: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Eligibility</Label>
+                  <Textarea
+                    placeholder="None Required"
+                    value={formState.eligibility}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, eligibility: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Trainings</Label>
+                  <Textarea
+                    placeholder="N/A"
+                    value={formState.trainings}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, trainings: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Competencies</Label>
+                  <Textarea
+                    placeholder="N/A"
+                    value={formState.competencies}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, competencies: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Educational Background</Label>
+                  <Textarea
+                    placeholder="N/A"
+                    value={formState.educationalBackground}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, educationalBackground: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Work Experience</Label>
+                  <Textarea
+                    placeholder="N/A"
+                    value={formState.workExperience}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, workExperience: e.target.value }))}
                   />
                 </div>
                 <div className="flex justify-end gap-3">
@@ -368,9 +611,114 @@ export default function JobVacancies() {
             </DialogContent>
           </Dialog>
         )}
+        <Dialog open={showManageTitles} onOpenChange={(open) => {
+          setShowManageTitles(open);
+          if (open) refetchCustomTitles();
+        }}>
+          <DialogContent className="w-[95vw] max-w-md max-h-[90vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Manage Position Titles</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              {positionTitleOptions.length === 0 && (
+                <div className="text-sm text-muted-foreground">No titles available.</div>
+              )}
+              {positionTitleOptions.map((title) => {
+                const usageCount = titleApplicationCount.get(title.toLowerCase()) ?? 0;
+                const canDelete = usageCount === 0;
+                return (
+                  <div key={title} className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{title}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {usageCount > 0 ? `Used by ${usageCount} application(s)` : "Unused - can be deleted"}
+                      </div>
+                    </div>
+                    {canDelete ? (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={async () => {
+                          if (!window.confirm(`Delete "${title}" and all saved references to it?`)) return;
+                          try {
+                            const result = await deleteJobsByTitle(title);
+                            setCustomPositionTitles((prev) => prev.filter((item) => item.toLowerCase() !== title.toLowerCase()));
+                            queryClient.invalidateQueries({ queryKey: ["position-titles"] });
+                            queryClient.invalidateQueries({ queryKey: ["position-titles-custom"] });
+                            queryClient.invalidateQueries({ queryKey: ["jobs"] });
+                            refetchCustomTitles();
+                            toast({ title: "Deleted", description: `${title} removed (${result.deleted} vacancy record(s)).` });
+                          } catch (err) {
+                            toast({ title: "Delete failed", description: (err as Error).message, variant: "destructive" });
+                          }
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Locked</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-end gap-3 mt-4">
+              <Button variant="outline" onClick={() => setShowManageTitles(false)}>Close</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={showManageDepartments} onOpenChange={setShowManageDepartments}>
+          <DialogContent className="w-[95vw] max-w-md max-h-[90vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Manage Departments</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              {departments.length === 0 && (
+                <div className="text-sm text-muted-foreground">No departments available.</div>
+              )}
+              {departments.map((department) => {
+                const usageCount = departmentUsageCount.get(department.id) ?? 0;
+                const canDelete = usageCount === 0;
+                return (
+                  <div key={department.id} className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{department.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {usageCount > 0 ? `Used by ${usageCount} application(s)` : "Unused - can be deleted"}
+                      </div>
+                    </div>
+                    {canDelete ? (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={async () => {
+                          if (!window.confirm(`Delete "${department.name}" and all unused vacancies in this department?`)) return;
+                          try {
+                            const result = await deleteDepartment(department.id);
+                            queryClient.invalidateQueries({ queryKey: ["departments"] });
+                            queryClient.invalidateQueries({ queryKey: ["jobs"] });
+                            toast({ title: "Deleted", description: `${department.name} removed.` });
+                            if ((result.deleted ?? 0) > 0) {
+                              toast({ title: "Vacancies removed", description: `${result.deleted} unused vacancy(ies) removed.` });
+                            }
+                          } catch (err) {
+                            toast({ title: "Delete failed", description: (err as Error).message, variant: "destructive" });
+                          }
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Locked</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-end gap-3 mt-4">
+              <Button variant="outline" onClick={() => setShowManageDepartments(false)}>Close</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
         {user?.role === "admin" && (
           <Dialog open={showEdit} onOpenChange={setShowEdit}>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="w-[95vw] max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader><DialogTitle>Edit Job Vacancy</DialogTitle></DialogHeader>
               <form className="space-y-4" onSubmit={(e) => {
                 e.preventDefault();
@@ -380,7 +728,15 @@ export default function JobVacancies() {
                   payload: {
                     positionTitle: editFormState.positionTitle,
                     departmentId: editFormState.departmentId,
+                    plantillaNo: editFormState.plantillaNo,
+                    monthlyRate: editFormState.monthlyRate,
                     salaryGrade: Number(editFormState.salaryGrade),
+                    description: editFormState.description,
+                    eligibility: editFormState.eligibility,
+                    trainings: editFormState.trainings,
+                    competencies: editFormState.competencies,
+                    educationalBackground: editFormState.educationalBackground,
+                    workExperience: editFormState.workExperience,
                     qualifications: editFormState.qualifications,
                     postingDate: editFormState.postingDate,
                     closingDate: editFormState.closingDate,
@@ -393,39 +749,79 @@ export default function JobVacancies() {
                   <Label>Position Title</Label>
                   <Select value={editFormState.positionTitle} onValueChange={applyEditTitle}>
                     <SelectTrigger><SelectValue placeholder="Select position title" /></SelectTrigger>
-                    <SelectContent>
-                      {positionTitleOptions.map((title) => <SelectItem key={title} value={title}>{title}</SelectItem>)}
-                      <SelectItem value={ADD_NEW_POSITION_VALUE}>+ Add new position title</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {showEditCustomTitle && (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        placeholder="Enter new position title"
-                        value={editCustomTitle}
-                        onChange={(e) => setEditCustomTitle(e.target.value)}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={!editCustomTitle.trim()}
-                        onClick={handleAddEditCustomTitle}
-                      >
-                        Add
-                      </Button>
+                      <SelectContent>
+                        {positionTitleOptions.map((title) => <SelectItem key={title} value={title}>{title}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setShowEditCustomTitle((s) => !s)}>+ Add new position title</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setShowManageTitles(true)}>Manage titles</Button>
                     </div>
-                  )}
+                    {showEditCustomTitle && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <Input
+                          placeholder="Enter new position title"
+                          value={editCustomTitle}
+                          onChange={(e) => setEditCustomTitle(e.target.value)}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={!editCustomTitle.trim()}
+                          onClick={handleAddEditCustomTitle}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Department</Label>
+                  <Label>Office</Label>
                   <Select value={editFormState.departmentId} onValueChange={(value) => setEditFormState((prev) => ({ ...prev, departmentId: value }))}>
                     <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                     <SelectContent>
                       {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setShowEditCustomDepartment((s) => !s)}>+ Add new department</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => setShowManageDepartments(true)}>Manage departments</Button>
+                  </div>
+                  {showEditCustomDepartment && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <Input
+                        placeholder="Enter new department name"
+                        value={editCustomDepartment}
+                        onChange={(e) => setEditCustomDepartment(e.target.value)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!editCustomDepartment.trim()}
+                        onClick={handleAddEditCustomDepartment}
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  )}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Plantilla No.</Label>
+                    <Input
+                      placeholder="Enter plantilla number"
+                      value={editFormState.plantillaNo}
+                      onChange={(e) => setEditFormState((prev) => ({ ...prev, plantillaNo: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Monthly Rate</Label>
+                    <Input
+                      placeholder="Enter monthly rate"
+                      value={editFormState.monthlyRate}
+                      onChange={(e) => setEditFormState((prev) => ({ ...prev, monthlyRate: e.target.value }))}
+                    />
+                  </div>
                   <div className="space-y-2">
                     <Label>Salary Grade</Label>
                     <Input
@@ -435,17 +831,17 @@ export default function JobVacancies() {
                       onChange={(e) => setEditFormState((prev) => ({ ...prev, salaryGrade: e.target.value }))}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Status</Label>
-                    <Select value={editFormState.status} onValueChange={(value) => setEditFormState((prev) => ({ ...prev, status: value }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Open">Open</SelectItem>
-                        <SelectItem value="Closed">Closed</SelectItem>
-                        <SelectItem value="Filled">Filled</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select value={editFormState.status} onValueChange={(value) => setEditFormState((prev) => ({ ...prev, status: value }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Open">Open</SelectItem>
+                      <SelectItem value="Closed">Closed</SelectItem>
+                      <SelectItem value="Filled">Filled</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Position Level</Label>
@@ -476,11 +872,51 @@ export default function JobVacancies() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Qualification Requirements</Label>
+                  <Label>Description</Label>
                   <Textarea
-                    placeholder="Enter required qualifications..."
-                    value={editFormState.qualifications}
-                    onChange={(e) => setEditFormState((prev) => ({ ...prev, qualifications: e.target.value }))}
+                    placeholder="N/A"
+                    value={editFormState.description}
+                    onChange={(e) => setEditFormState((prev) => ({ ...prev, description: e.target.value, qualifications: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Eligibility</Label>
+                  <Textarea
+                    placeholder="None Required"
+                    value={editFormState.eligibility}
+                    onChange={(e) => setEditFormState((prev) => ({ ...prev, eligibility: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Trainings</Label>
+                  <Textarea
+                    placeholder="N/A"
+                    value={editFormState.trainings}
+                    onChange={(e) => setEditFormState((prev) => ({ ...prev, trainings: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Competencies</Label>
+                  <Textarea
+                    placeholder="N/A"
+                    value={editFormState.competencies}
+                    onChange={(e) => setEditFormState((prev) => ({ ...prev, competencies: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Educational Background</Label>
+                  <Textarea
+                    placeholder="N/A"
+                    value={editFormState.educationalBackground}
+                    onChange={(e) => setEditFormState((prev) => ({ ...prev, educationalBackground: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Work Experience</Label>
+                  <Textarea
+                    placeholder="N/A"
+                    value={editFormState.workExperience}
+                    onChange={(e) => setEditFormState((prev) => ({ ...prev, workExperience: e.target.value }))}
                   />
                 </div>
                 <div className="flex justify-end gap-3">
@@ -575,8 +1011,16 @@ export default function JobVacancies() {
                                   setEditFormState({
                                     positionTitle: vacancy.positionTitle,
                                     departmentId: vacancy.departmentId,
+                                    plantillaNo: vacancy.plantillaNo ?? "",
+                                    monthlyRate: vacancy.monthlyRate ?? "",
                                     salaryGrade: String(vacancy.salaryGrade),
-                                    qualifications: vacancy.qualifications,
+                                    description: vacancy.description ?? vacancy.qualifications ?? "",
+                                    eligibility: vacancy.eligibility ?? "",
+                                    trainings: vacancy.trainings ?? "",
+                                    competencies: vacancy.competencies ?? "",
+                                    educationalBackground: vacancy.educationalBackground ?? "",
+                                    workExperience: vacancy.workExperience ?? "",
+                                    qualifications: vacancy.qualifications ?? vacancy.description ?? "",
                                     postingDate: vacancy.postingDate,
                                     closingDate: vacancy.closingDate,
                                     status: vacancy.status,
@@ -608,11 +1052,18 @@ export default function JobVacancies() {
                           <DialogHeader><DialogTitle>{vacancy.positionTitle}</DialogTitle></DialogHeader>
                           <div className="space-y-3 text-sm">
                             <div><span className="text-muted-foreground">Department:</span> <span className="font-medium">{getDepartmentName(vacancy.departmentId)}</span></div>
+                            <div><span className="text-muted-foreground">Plantilla No.:</span> <span>{vacancy.plantillaNo || "-"}</span></div>
+                            <div><span className="text-muted-foreground">Monthly Rate:</span> <span>{vacancy.monthlyRate || "-"}</span></div>
                             <div><span className="text-muted-foreground">Salary Grade:</span> <span className="font-medium">SG-{vacancy.salaryGrade}</span></div>
                             <div><span className="text-muted-foreground">Status:</span> <Badge variant="outline">{vacancy.status}</Badge></div>
                             <div><span className="text-muted-foreground">Posting Date:</span> <span>{vacancy.postingDate}</span></div>
                             <div><span className="text-muted-foreground">Closing Date:</span> <span>{vacancy.closingDate}</span></div>
-                            <div><span className="text-muted-foreground">Qualifications:</span><p className="mt-1">{vacancy.qualifications}</p></div>
+                            <div><span className="text-muted-foreground">Description:</span><p className="mt-1 whitespace-pre-wrap">{vacancy.description || vacancy.qualifications || "-"}</p></div>
+                            <div><span className="text-muted-foreground">Eligibility:</span><p className="mt-1 whitespace-pre-wrap">{vacancy.eligibility || "-"}</p></div>
+                            <div><span className="text-muted-foreground">Trainings:</span><p className="mt-1 whitespace-pre-wrap">{vacancy.trainings || "-"}</p></div>
+                            <div><span className="text-muted-foreground">Competencies:</span><p className="mt-1 whitespace-pre-wrap">{vacancy.competencies || "-"}</p></div>
+                            <div><span className="text-muted-foreground">Educational Background:</span><p className="mt-1 whitespace-pre-wrap">{vacancy.educationalBackground || "-"}</p></div>
+                            <div><span className="text-muted-foreground">Work Experience:</span><p className="mt-1 whitespace-pre-wrap">{vacancy.workExperience || "-"}</p></div>
                           </div>
                         </DialogContent>
                       </Dialog>
@@ -632,3 +1083,4 @@ export default function JobVacancies() {
     </div>
   );
 }
+
