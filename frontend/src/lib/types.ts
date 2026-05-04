@@ -225,7 +225,7 @@ export interface AuditLog {
 }
 
 export interface EmailTemplate {
-  templateKey: "not_qualified" | "non_teaching" | "teaching" | "qualification_notice";
+  templateKey: "not_qualified" | "non_teaching" | "teaching" | "qualification_notice" | "hired";
   templateName: string;
   templateGroup: "rejection" | "qualification";
   subject: string;

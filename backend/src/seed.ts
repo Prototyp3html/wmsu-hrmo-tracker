@@ -175,22 +175,6 @@ export async function seedIfEmpty() {
   }
 }
 
-export async function ensureDepartments() {
-  if (departments.length === 0) {
-    return;
-  }
-
-  for (const dept of departments) {
-    const existing = await query<{ id: string }>("SELECT id FROM departments WHERE id = $1", [dept.id]);
-    if (existing.rowCount === 0) {
-      await query("INSERT INTO departments (id, name) VALUES ($1, $2)", [dept.id, dept.name]);
-      continue;
-    }
-
-    await query("UPDATE departments SET name = $2 WHERE id = $1", [dept.id, dept.name]);
-  }
-}
-
 export async function ensureTestAccounts() {
   const now = new Date().toISOString();
   const passwordHash = bcrypt.hashSync(TEST_ACCOUNT_PASSWORD, 10);
@@ -210,5 +194,18 @@ export async function ensureTestAccounts() {
       "UPDATE users SET name = $2, role = $3, password_hash = $4, is_active = TRUE WHERE email = $1",
       [user.email, user.name, user.role, passwordHash]
     );
+  }
+}
+
+export async function ensureDepartments() {
+  for (const dept of departments) {
+    const existing = await query<{ id: string }>(
+      "SELECT id FROM departments WHERE LOWER(name) = LOWER($1) LIMIT 1",
+      [dept.name]
+    );
+
+    if (existing.rowCount === 0) {
+      await query("INSERT INTO departments (id, name) VALUES ($1, $2)", [randomUUID(), dept.name]);
+    }
   }
 }

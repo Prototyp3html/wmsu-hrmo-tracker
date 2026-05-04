@@ -1126,73 +1126,437 @@ export default function Applicants() {
     setIsExportingApplicant(true);
     try {
       const relatedApplications = applications.filter((application) => application.applicantId === applicant.id);
-      const lines = buildApplicantExportLines(applicant, relatedApplications, applicantDocuments);
       const fileNameBase = `${applicant.fullName || "applicant"}`
         .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
         .replace(/\s+/g, " ")
         .trim()
         .replace(/\s+/g, "_") || "applicant";
 
+      const educationRows = parseEducationalBackground(applicant.educationalBackground || "").filter((row) =>
+        hasMeaningfulValue(row.level) ||
+        hasMeaningfulValue(row.schoolName) ||
+        hasMeaningfulValue(row.degreeCourse) ||
+        hasMeaningfulValue(row.attendanceFrom) ||
+        hasMeaningfulValue(row.attendanceTo) ||
+        hasMeaningfulValue(row.highestLevelUnitsEarned) ||
+        hasMeaningfulValue(row.yearGraduated) ||
+        hasMeaningfulValue(row.scholarshipHonors)
+      );
+      const civilServiceRows = parseCivilServiceEligibility(applicant.civilServiceEligibility || "").filter((row) =>
+        hasMeaningfulValue(row.eligibility) || hasMeaningfulValue(row.rating) || hasMeaningfulValue(row.examDate) || hasMeaningfulValue(row.examPlace) || hasMeaningfulValue(row.licenseNumber) || hasMeaningfulValue(row.licenseValidUntil)
+      );
+      const workRows = parseWorkExperience(applicant.workExperience || "").filter((row) =>
+        hasMeaningfulValue(row.positionTitle) || hasMeaningfulValue(row.departmentAgencyOfficeCompany) || hasMeaningfulValue(row.dateFrom) || hasMeaningfulValue(row.dateTo) || hasMeaningfulValue(row.statusOfAppointment) || hasMeaningfulValue(row.isGovtService)
+      );
+      const voluntaryRows = parseVoluntaryWork(applicant.voluntaryWork || "").filter((row) =>
+        hasMeaningfulValue(row.organizationNameAddress) || hasMeaningfulValue(row.dateFrom) || hasMeaningfulValue(row.dateTo) || hasMeaningfulValue(row.numberOfHours) || hasMeaningfulValue(row.positionNatureOfWork)
+      );
+      const trainingRows = parseTrainings(applicant.trainings || "").filter((row) =>
+        hasMeaningfulValue(row.title) || hasMeaningfulValue(row.dateFrom) || hasMeaningfulValue(row.dateTo) || hasMeaningfulValue(row.numberOfHours) || hasMeaningfulValue(row.typeOfLd) || hasMeaningfulValue(row.conductedSponsoredBy)
+      );
+      const otherInfoRows = parseOtherInfo(applicant.otherInfo || "").filter((row) =>
+        hasMeaningfulValue(row.specialSkillsHobbies) || hasMeaningfulValue(row.nonAcademicDistinctionsRecognition) || hasMeaningfulValue(row.membershipsAssociationOrganization)
+      );
+
+      const personalRows: Array<[string, string]> = [
+        ["Surname / First / Middle / Extension", formatExportValue(applicant.fullName)],
+        ["Date of Birth", formatExportValue(applicant.dateOfBirth)],
+        ["Place of Birth", formatExportValue(applicant.placeOfBirth)],
+        ["Sex", formatExportValue(applicant.sex)],
+        ["Civil Status", formatExportValue(applicant.civilStatus)],
+        ["Citizenship", formatExportValue(applicant.citizenship)],
+        ["Citizenship Details", formatExportValue(applicant.citizenshipDetails)],
+        ["Height / Weight / Blood Type", `${formatExportValue(applicant.height)} / ${formatExportValue(applicant.weight)} / ${formatExportValue(applicant.bloodType)}`],
+        ["Address", formatExportValue(applicant.address)],
+        ["Permanent Address", formatExportValue(applicant.permanentAddress)],
+        ["Telephone / Mobile / Email", `${formatExportValue(applicant.telephoneNumber)} / ${formatExportValue(applicant.contactNumber)} / ${formatExportValue(applicant.email)}`],
+        ["GSIS / PAG-IBIG / PHILHEALTH", `${formatExportValue(applicant.gsisIdNo)} / ${formatExportValue(applicant.pagibigIdNo)} / ${formatExportValue(applicant.philhealthNo)}`],
+        ["PhilSys / SSS / TIN / Agency No.", `${formatExportValue(applicant.philsysNo)} / ${formatExportValue(applicant.sssNo)} / ${formatExportValue(applicant.tinNo)} / ${formatExportValue(applicant.agencyEmployeeNo)}`]
+      ];
+
+      const familyRows: Array<[string, string]> = [
+        ["Spouse Name", formatExportValue([applicant.spouseSurname, applicant.spouseFirstName, applicant.spouseMiddleName, applicant.spouseNameExtension].filter(Boolean).join(" "))],
+        ["Spouse Occupation", formatExportValue(applicant.spouseOccupation)],
+        ["Spouse Employer / Business", formatExportValue(applicant.spouseEmployerBusinessName)],
+        ["Spouse Business Address", formatExportValue(applicant.spouseBusinessAddress)],
+        ["Spouse Telephone", formatExportValue(applicant.spouseTelephoneNo)],
+        ["Father Name", formatExportValue([applicant.fatherSurname, applicant.fatherFirstName, applicant.fatherMiddleName, applicant.fatherNameExtension].filter(Boolean).join(" "))],
+        ["Mother Maiden Name", formatExportValue([applicant.motherSurname, applicant.motherFirstName, applicant.motherMiddleName].filter(Boolean).join(" "))]
+      ];
+
+      const applicationRows = relatedApplications.map((app) => {
+        const vacancy = jobVacancies.find((vacancyItem) => vacancyItem.id === app.vacancyId);
+        return [formatExportValue(vacancy?.positionTitle), formatExportValue(app.status), formatExportValue(app.dateApplied), formatExportValue(app.remarks)];
+      });
+
+      const documentRows = applicantDocuments.map((doc) => [formatExportValue(doc.originalName), formatExportValue(doc.docType)]);
+
       if (format === "pdf") {
         const { jsPDF } = await import("jspdf");
         const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-        const margin = 40;
+        const margin = 28;
         const pageWidth = pdf.internal.pageSize.getWidth();
         const pageHeight = pdf.internal.pageSize.getHeight();
-        const maxWidth = pageWidth - margin * 2;
-        let cursorY = margin;
+        const contentWidth = pageWidth - margin * 2;
+        let cursorY = margin + 54;
 
-        const ensureSpace = (requiredHeight: number) => {
-          if (cursorY + requiredHeight <= pageHeight - margin) return;
+        const drawPageBorder = () => {
+          pdf.setLineWidth(0.8);
+          pdf.rect(margin - 8, margin - 8, contentWidth + 16, pageHeight - margin * 2 + 16);
+        };
+
+        const addPage = () => {
           pdf.addPage();
+          drawPageBorder();
           cursorY = margin;
         };
 
-        lines.forEach((line) => {
-          const isTitle = line.kind === "title";
-          const isSection = line.kind === "section";
-          const isSubsection = line.kind === "subsection";
-          const fontSize = isTitle ? 16 : isSection ? 12.5 : isSubsection ? 10.5 : 10;
-          const indent = line.kind === "bullet" ? 14 : line.kind === "subsection" ? 6 : 0;
-          const prefix = line.kind === "bullet" ? "- " : "";
-          pdf.setFont("helvetica", isTitle || isSection || isSubsection ? "bold" : "normal");
-          pdf.setFontSize(fontSize);
-          const wrapped = pdf.splitTextToSize(`${prefix}${line.text}`, maxWidth - indent);
-          const lineHeight = fontSize + 4;
-          ensureSpace(wrapped.length * lineHeight + (isTitle || isSection ? 8 : 2));
-          wrapped.forEach((part: string) => {
-            ensureSpace(lineHeight);
-            pdf.text(part, margin + indent, cursorY);
-            cursorY += lineHeight;
+        const ensureSpace = (requiredHeight: number) => {
+          if (cursorY + requiredHeight <= pageHeight - margin) return;
+          addPage();
+        };
+
+        const drawSectionHeader = (title: string) => {
+          ensureSpace(26);
+          pdf.setFillColor(235, 235, 235);
+          pdf.rect(margin, cursorY, contentWidth, 20, "F");
+          pdf.setLineWidth(0.6);
+          pdf.rect(margin, cursorY, contentWidth, 20);
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(10.5);
+          pdf.text(title, margin + 6, cursorY + 14);
+          cursorY += 20;
+        };
+
+        const drawKeyValueRows = (rows: Array<[string, string]>) => {
+          const labelWidth = 170;
+          rows.forEach(([label, value]) => {
+            const labelLines = pdf.splitTextToSize(label, labelWidth - 10) as string[];
+            const valueLines = pdf.splitTextToSize(value, contentWidth - labelWidth - 10) as string[];
+            const rowHeight = Math.max(labelLines.length, valueLines.length) * 11 + 6;
+            ensureSpace(rowHeight);
+            pdf.setLineWidth(0.4);
+            pdf.rect(margin, cursorY, labelWidth, rowHeight);
+            pdf.rect(margin + labelWidth, cursorY, contentWidth - labelWidth, rowHeight);
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(9);
+            labelLines.forEach((line, index) => {
+              pdf.text(line, margin + 4, cursorY + 12 + index * 11);
+            });
+            pdf.setFont("helvetica", "normal");
+            valueLines.forEach((line, index) => {
+              pdf.text(line, margin + labelWidth + 4, cursorY + 12 + index * 11);
+            });
+            cursorY += rowHeight;
           });
-          if (isTitle || isSection) {
-            cursorY += 4;
+        };
+
+        const drawGridTable = (headers: string[], rows: string[][], columnWidths: number[]) => {
+          const drawRow = (values: string[], isHeader: boolean) => {
+            const colTexts = values.map((value, index) => pdf.splitTextToSize(value, columnWidths[index] - 8) as string[]);
+            const rowHeight = Math.max(...colTexts.map((text) => text.length)) * 11 + 6;
+            ensureSpace(rowHeight);
+            let startX = margin;
+            values.forEach((_, index) => {
+              if (isHeader) {
+                pdf.setFillColor(245, 245, 245);
+                pdf.rect(startX, cursorY, columnWidths[index], rowHeight, "F");
+              }
+              pdf.rect(startX, cursorY, columnWidths[index], rowHeight);
+              pdf.setFont("helvetica", isHeader ? "bold" : "normal");
+              pdf.setFontSize(8.5);
+              colTexts[index].forEach((line, lineIndex) => {
+                pdf.text(line, startX + 4, cursorY + 12 + lineIndex * 11);
+              });
+              startX += columnWidths[index];
+            });
+            cursorY += rowHeight;
+          };
+
+          drawRow(headers, true);
+          if (rows.length === 0) {
+            drawRow(["No records", ...headers.slice(1).map(() => "")], false);
+            return;
           }
-        });
+          rows.forEach((row) => drawRow(row, false));
+        };
+
+        drawPageBorder();
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(16);
+        pdf.text("PERSONAL DATA SHEET", pageWidth / 2, margin + 12, { align: "center" });
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(9);
+        pdf.text(`Generated: ${new Date().toLocaleString()}`, pageWidth / 2, margin + 28, { align: "center" });
+        pdf.text(`Applicant: ${applicant.fullName || "N/A"}`, pageWidth / 2, margin + 42, { align: "center" });
+
+        drawSectionHeader("I. PERSONAL INFORMATION");
+        drawKeyValueRows(personalRows);
+
+        drawSectionHeader("II. FAMILY BACKGROUND");
+        drawKeyValueRows(familyRows);
+
+        drawSectionHeader("III. EDUCATIONAL BACKGROUND");
+        drawGridTable(
+          ["Level", "School", "Degree/Course", "From", "To", "Units", "Year", "Honors"],
+          educationRows.map((row) => [
+            formatExportValue(row.level),
+            formatExportValue(row.schoolName),
+            formatExportValue(row.degreeCourse),
+            formatExportValue(row.attendanceFrom),
+            formatExportValue(row.attendanceTo),
+            formatExportValue(row.highestLevelUnitsEarned),
+            formatExportValue(row.yearGraduated),
+            formatExportValue(row.scholarshipHonors)
+          ]),
+          [58, 112, 92, 44, 44, 45, 45, 68]
+        );
+
+        drawSectionHeader("IV. CIVIL SERVICE ELIGIBILITY");
+        drawGridTable(
+          ["Eligibility", "Rating", "Exam Date", "Exam Place", "License No.", "Validity"],
+          civilServiceRows.map((row) => [
+            formatExportValue(row.eligibility),
+            formatExportValue(row.rating),
+            formatExportValue(row.examDate),
+            formatExportValue(row.examPlace),
+            formatExportValue(row.licenseNumber),
+            formatExportValue(row.licenseValidUntil)
+          ]),
+          [116, 58, 68, 130, 78, 65]
+        );
+
+        drawSectionHeader("V. WORK EXPERIENCE");
+        drawGridTable(
+          ["From", "To", "Position Title", "Agency/Company", "Status", "Govt"],
+          workRows.map((row) => [
+            formatExportValue(row.dateFrom),
+            formatExportValue(row.dateTo),
+            formatExportValue(row.positionTitle),
+            formatExportValue(row.departmentAgencyOfficeCompany),
+            formatExportValue(row.statusOfAppointment),
+            row.isGovtService === "Y" ? "Yes" : row.isGovtService === "N" ? "No" : "N/A"
+          ]),
+          [52, 52, 120, 160, 95, 36]
+        );
+
+        drawSectionHeader("VI. VOLUNTARY WORK");
+        drawGridTable(
+          ["Organization", "From", "To", "Hours", "Position/Nature"],
+          voluntaryRows.map((row) => [
+            formatExportValue(row.organizationNameAddress),
+            formatExportValue(row.dateFrom),
+            formatExportValue(row.dateTo),
+            formatExportValue(row.numberOfHours),
+            formatExportValue(row.positionNatureOfWork)
+          ]),
+          [220, 60, 60, 48, 127]
+        );
+
+        drawSectionHeader("VII. LEARNING AND DEVELOPMENT (L&D)");
+        drawGridTable(
+          ["Title", "From", "To", "Hours", "Type", "Conducted/Sponsored By"],
+          trainingRows.map((row) => [
+            formatExportValue(row.title),
+            formatExportValue(row.dateFrom),
+            formatExportValue(row.dateTo),
+            formatExportValue(row.numberOfHours),
+            formatExportValue(row.typeOfLd),
+            formatExportValue(row.conductedSponsoredBy)
+          ]),
+          [168, 52, 52, 44, 78, 121]
+        );
+
+        drawSectionHeader("VIII. OTHER INFORMATION");
+        drawGridTable(
+          ["Special Skills/Hobbies", "Non-Academic Distinctions", "Memberships/Organization"],
+          otherInfoRows.map((row) => [
+            formatExportValue(row.specialSkillsHobbies),
+            formatExportValue(row.nonAcademicDistinctionsRecognition),
+            formatExportValue(row.membershipsAssociationOrganization)
+          ]),
+          [170, 170, 175]
+        );
+        drawKeyValueRows([["References", formatExportValue(applicant.referencesInfo)]]);
+
+        drawSectionHeader("IX. APPLICATIONS");
+        drawGridTable(["Position", "Status", "Date Applied", "Remarks"], applicationRows, [200, 95, 90, 130]);
+
+        drawSectionHeader("X. SUBMITTED DOCUMENTS");
+        drawGridTable(["Document Name", "Type"], documentRows, [395, 120]);
 
         pdf.save(`${fileNameBase}.pdf`);
       } else {
-        const { AlignmentType, Document, HeadingLevel, Packer, Paragraph, TextRun } = await import("docx");
+        const {
+          AlignmentType,
+          BorderStyle,
+          Document,
+          HeadingLevel,
+          Packer,
+          Paragraph,
+          ShadingType,
+          Table,
+          TableCell,
+          TableRow,
+          TextRun,
+          WidthType
+        } = await import("docx");
+
+        const buildHeading = (title: string) =>
+          new Paragraph({
+            heading: HeadingLevel.HEADING_2,
+            spacing: { before: 180, after: 90 },
+            children: [new TextRun({ text: title, bold: true })]
+          });
+
+        const buildKeyValueTable = (rows: Array<[string, string]>) =>
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: rows.map(([label, value]) =>
+              new TableRow({
+                children: [
+                  new TableCell({
+                    width: { size: 35, type: WidthType.PERCENTAGE },
+                    children: [new Paragraph({ children: [new TextRun({ text: label, bold: true })] })]
+                  }),
+                  new TableCell({
+                    width: { size: 65, type: WidthType.PERCENTAGE },
+                    children: [new Paragraph(formatExportValue(value))]
+                  })
+                ]
+              })
+            )
+          });
+
+        const buildGridTable = (headers: string[], rows: string[][]) =>
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                children: headers.map((header) =>
+                  new TableCell({
+                    shading: { fill: "EDEDED", type: ShadingType.CLEAR, color: "auto" },
+                    children: [new Paragraph({ children: [new TextRun({ text: header, bold: true })] })]
+                  })
+                )
+              }),
+              ...(rows.length > 0
+                ? rows.map((row) =>
+                    new TableRow({
+                      children: row.map((cell) => new TableCell({ children: [new Paragraph(formatExportValue(cell))] }))
+                    })
+                  )
+                : [
+                    new TableRow({
+                      children: headers.map((_, index) =>
+                        new TableCell({ children: [new Paragraph(index === 0 ? "No records" : "")] })
+                      )
+                    })
+                  ])
+            ]
+          });
+
         const doc = new Document({
           sections: [
             {
-              children: lines.map((line) => {
-                const isTitle = line.kind === "title";
-                const isSection = line.kind === "section";
-                const isSubsection = line.kind === "subsection";
-                return new Paragraph({
-                  heading: isSection ? HeadingLevel.HEADING_1 : isSubsection ? HeadingLevel.HEADING_2 : undefined,
-                  alignment: isTitle ? AlignmentType.CENTER : undefined,
-                  spacing: { before: isTitle || isSection ? 160 : isSubsection ? 80 : 0, after: 80 },
-                  indent: line.kind === "bullet" ? { left: 360 } : undefined,
-                  children: [
-                    new TextRun({
-                      text: line.kind === "bullet" ? `- ${line.text}` : line.text,
-                      bold: isTitle || isSection || isSubsection
-                    })
-                  ]
-                });
-              })
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { after: 120 },
+                  children: [new TextRun({ text: "PERSONAL DATA SHEET", bold: true, size: 30 })]
+                }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun(`Generated: ${new Date().toLocaleString()}`)] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 180 }, children: [new TextRun(`Applicant: ${applicant.fullName || "N/A"}`)] }),
+
+                buildHeading("I. Personal Information"),
+                buildKeyValueTable(personalRows),
+
+                buildHeading("II. Family Background"),
+                buildKeyValueTable(familyRows),
+
+                buildHeading("III. Educational Background"),
+                buildGridTable(
+                  ["Level", "School", "Degree/Course", "From", "To", "Units", "Year", "Honors"],
+                  educationRows.map((row) => [
+                    formatExportValue(row.level),
+                    formatExportValue(row.schoolName),
+                    formatExportValue(row.degreeCourse),
+                    formatExportValue(row.attendanceFrom),
+                    formatExportValue(row.attendanceTo),
+                    formatExportValue(row.highestLevelUnitsEarned),
+                    formatExportValue(row.yearGraduated),
+                    formatExportValue(row.scholarshipHonors)
+                  ])
+                ),
+
+                buildHeading("IV. Civil Service Eligibility"),
+                buildGridTable(
+                  ["Eligibility", "Rating", "Exam Date", "Exam Place", "License No.", "Validity"],
+                  civilServiceRows.map((row) => [
+                    formatExportValue(row.eligibility),
+                    formatExportValue(row.rating),
+                    formatExportValue(row.examDate),
+                    formatExportValue(row.examPlace),
+                    formatExportValue(row.licenseNumber),
+                    formatExportValue(row.licenseValidUntil)
+                  ])
+                ),
+
+                buildHeading("V. Work Experience"),
+                buildGridTable(
+                  ["From", "To", "Position Title", "Agency/Company", "Status", "Govt"],
+                  workRows.map((row) => [
+                    formatExportValue(row.dateFrom),
+                    formatExportValue(row.dateTo),
+                    formatExportValue(row.positionTitle),
+                    formatExportValue(row.departmentAgencyOfficeCompany),
+                    formatExportValue(row.statusOfAppointment),
+                    row.isGovtService === "Y" ? "Yes" : row.isGovtService === "N" ? "No" : "N/A"
+                  ])
+                ),
+
+                buildHeading("VI. Voluntary Work"),
+                buildGridTable(
+                  ["Organization", "From", "To", "Hours", "Position/Nature"],
+                  voluntaryRows.map((row) => [
+                    formatExportValue(row.organizationNameAddress),
+                    formatExportValue(row.dateFrom),
+                    formatExportValue(row.dateTo),
+                    formatExportValue(row.numberOfHours),
+                    formatExportValue(row.positionNatureOfWork)
+                  ])
+                ),
+
+                buildHeading("VII. Learning and Development (L&D)"),
+                buildGridTable(
+                  ["Title", "From", "To", "Hours", "Type", "Conducted/Sponsored"],
+                  trainingRows.map((row) => [
+                    formatExportValue(row.title),
+                    formatExportValue(row.dateFrom),
+                    formatExportValue(row.dateTo),
+                    formatExportValue(row.numberOfHours),
+                    formatExportValue(row.typeOfLd),
+                    formatExportValue(row.conductedSponsoredBy)
+                  ])
+                ),
+
+                buildHeading("VIII. Other Information"),
+                buildGridTable(
+                  ["Special Skills/Hobbies", "Non-Academic Distinctions", "Memberships/Organization"],
+                  otherInfoRows.map((row) => [
+                    formatExportValue(row.specialSkillsHobbies),
+                    formatExportValue(row.nonAcademicDistinctionsRecognition),
+                    formatExportValue(row.membershipsAssociationOrganization)
+                  ])
+                ),
+                buildKeyValueTable([["References", formatExportValue(applicant.referencesInfo)]]),
+
+                buildHeading("IX. Applications"),
+                buildGridTable(["Position", "Status", "Date Applied", "Remarks"], applicationRows),
+
+                buildHeading("X. Submitted Documents"),
+                buildGridTable(["Document Name", "Type"], documentRows)
+              ]
             }
           ]
         });
@@ -3737,6 +4101,13 @@ export default function Applicants() {
             const applicant = applicants.find((a) => a.id === viewingApplicantId);
             if (!applicant) return null;
             const apps = getApplicantApplications(applicant.id);
+            const children = parseChildrenInfo(applicant.childrenInfo || "");
+            const educationRows = parseEducationalBackground(applicant.educationalBackground || "");
+            const civilServiceRows = parseCivilServiceEligibility(applicant.civilServiceEligibility || "");
+            const workRows = parseWorkExperience(applicant.workExperience || "");
+            const voluntaryRows = parseVoluntaryWork(applicant.voluntaryWork || "");
+            const trainingRows = parseTrainings(applicant.trainings || "");
+            const otherInfoRows = parseOtherInfo(applicant.otherInfo || "");
             return (
               <>
                 <DialogHeader className="space-y-3">
@@ -3767,55 +4138,195 @@ export default function Applicants() {
                   </div>
                 </DialogHeader>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Phone className="w-4 h-4 flex-shrink-0" /> <span className="truncate">{applicant.contactNumber}</span>
+                  <div className="space-y-3 border-t pt-3">
+                    <h4 className="font-semibold text-sm">I. Personal Information</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Phone className="w-4 h-4 flex-shrink-0" /> <span className="truncate">{applicant.contactNumber || "N/A"}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Mail className="w-4 h-4 flex-shrink-0" /> <span className="truncate">{applicant.email || "N/A"}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-muted-foreground sm:col-span-2">
+                        <MapPin className="w-4 h-4 flex-shrink-0" /> <span className="truncate">{applicant.address || "N/A"}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Mail className="w-4 h-4 flex-shrink-0" /> <span className="truncate">{applicant.email}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground sm:col-span-2">
-                      <MapPin className="w-4 h-4 flex-shrink-0" /> <span className="truncate">{applicant.address}</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                      {[
+                        ["Full Name", applicant.fullName],
+                        ["Telephone No.", applicant.telephoneNumber],
+                        ["Date of Birth", applicant.dateOfBirth],
+                        ["Place of Birth", applicant.placeOfBirth],
+                        ["Sex at Birth", applicant.sex],
+                        ["Civil Status", applicant.civilStatus],
+                        ["Citizenship", applicant.citizenship],
+                        ["Citizenship Details", applicant.citizenshipDetails],
+                        ["Height", applicant.height],
+                        ["Weight", applicant.weight],
+                        ["Blood Type", applicant.bloodType],
+                        ["Permanent Address", applicant.permanentAddress],
+                        ["GSIS ID No.", applicant.gsisIdNo],
+                        ["PhilSys No.", applicant.philsysNo],
+                        ["PAG-IBIG No.", applicant.pagibigIdNo],
+                        ["PhilHealth No.", applicant.philhealthNo],
+                        ["SSS No.", applicant.sssNo],
+                        ["TIN No.", applicant.tinNo],
+                        ["Agency Employee No.", applicant.agencyEmployeeNo]
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+                          <p className="text-muted-foreground">{label}</p>
+                          <p className="font-medium text-foreground">{value || "N/A"}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                    <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-                      <p className="text-muted-foreground">Date of Birth</p>
-                      <p className="font-medium text-foreground">{applicant.dateOfBirth || "N/A"}</p>
-                    </div>
-                    <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-                      <p className="text-muted-foreground">Sex</p>
-                      <p className="font-medium text-foreground">{applicant.sex || "N/A"}</p>
-                    </div>
-                    <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-                      <p className="text-muted-foreground">Civil Status</p>
-                      <p className="font-medium text-foreground">{applicant.civilStatus || "N/A"}</p>
-                    </div>
-                    <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-                      <p className="text-muted-foreground">Citizenship</p>
-                      <p className="font-medium text-foreground">{applicant.citizenship || "N/A"}</p>
-                    </div>
-                    <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-                      <p className="text-muted-foreground">Height</p>
-                      <p className="font-medium text-foreground">{applicant.height || "N/A"}</p>
-                    </div>
-                    <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-                      <p className="text-muted-foreground">Weight</p>
-                      <p className="font-medium text-foreground">{applicant.weight || "N/A"}</p>
-                    </div>
-                    <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 sm:col-span-2">
-                      <p className="text-muted-foreground">Blood Type</p>
-                      <p className="font-medium text-foreground">{applicant.bloodType || "N/A"}</p>
+
+                  <div className="border-t pt-3 space-y-3">
+                    <h4 className="font-semibold text-sm">II. Family Background</h4>
+                    <div className="space-y-3">
+                      <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                        <p className="font-medium text-foreground mb-2">Spouse Information</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div><p className="text-muted-foreground">Name:</p><p className="font-medium">{[applicant.spouseSurname, applicant.spouseFirstName, applicant.spouseMiddleName, applicant.spouseNameExtension].filter(Boolean).join(" ") || "N/A"}</p></div>
+                          <div><p className="text-muted-foreground">Occupation:</p><p className="font-medium">{applicant.spouseOccupation || "N/A"}</p></div>
+                          <div><p className="text-muted-foreground">Employer/Business:</p><p className="font-medium">{applicant.spouseEmployerBusinessName || "N/A"}</p></div>
+                          <div><p className="text-muted-foreground">Business Address:</p><p className="font-medium">{applicant.spouseBusinessAddress || "N/A"}</p></div>
+                          <div className="col-span-2"><p className="text-muted-foreground">Telephone:</p><p className="font-medium">{applicant.spouseTelephoneNo || "N/A"}</p></div>
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                        <p className="font-medium text-foreground mb-2">Father's Information</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="col-span-2"><p className="text-muted-foreground">Name:</p><p className="font-medium">{[applicant.fatherSurname, applicant.fatherFirstName, applicant.fatherMiddleName, applicant.fatherNameExtension].filter(Boolean).join(" ") || "N/A"}</p></div>
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                        <p className="font-medium text-foreground mb-2">Mother's Information (Maiden Name)</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="col-span-2"><p className="text-muted-foreground">Name:</p><p className="font-medium">{[applicant.motherSurname, applicant.motherFirstName, applicant.motherMiddleName].filter(Boolean).join(" ") || "N/A"}</p></div>
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                        <p className="font-medium text-foreground mb-2">Children</p>
+                        <div className="space-y-2">
+                          {children.length > 0 ? children.map((child, index) => (
+                            <div key={index} className="flex justify-between text-muted-foreground">
+                              <span>{child.fullName || "N/A"}</span>
+                              <span>{child.dateOfBirth || "N/A"}</span>
+                            </div>
+                          )) : <p className="text-muted-foreground">No children listed.</p>}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <div className="text-sm space-y-2">
-                    <div className="flex items-start gap-2">
-                      <GraduationCap className="w-4 h-4 text-muted-foreground mt-0.5" />
-                      <div><p className="text-xs text-muted-foreground">Education</p><p>{applicant.educationalBackground}</p></div>
+
+                  <div className="border-t pt-3 space-y-3">
+                    <h4 className="font-semibold text-sm">III. Educational Background</h4>
+                    <div className="space-y-2">
+                      {educationRows.length > 0 ? educationRows.map((edu, index) => (
+                        <div key={index} className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div><p className="text-muted-foreground">Level:</p><p className="font-medium">{edu.level || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Year Graduated:</p><p className="font-medium">{edu.yearGraduated || "N/A"}</p></div>
+                            <div className="col-span-2"><p className="text-muted-foreground">School:</p><p className="font-medium">{edu.schoolName || "N/A"}</p></div>
+                            <div className="col-span-2"><p className="text-muted-foreground">Degree/Course:</p><p className="font-medium">{edu.degreeCourse || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">From:</p><p className="font-medium">{edu.attendanceFrom || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">To:</p><p className="font-medium">{edu.attendanceTo || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Units Earned:</p><p className="font-medium">{edu.highestLevelUnitsEarned || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Honors:</p><p className="font-medium">{edu.scholarshipHonors || "N/A"}</p></div>
+                          </div>
+                        </div>
+                      )) : <p className="text-sm text-muted-foreground">No educational background provided.</p>}
                     </div>
-                    <div className="flex items-start gap-2">
-                      <Briefcase className="w-4 h-4 text-muted-foreground mt-0.5" />
-                      <div><p className="text-xs text-muted-foreground">Experience</p><p>{applicant.workExperience}</p></div>
+                  </div>
+
+                  <div className="border-t pt-3 space-y-3">
+                    <h4 className="font-semibold text-sm">IV. Civil Service Eligibility</h4>
+                    <div className="space-y-2">
+                      {civilServiceRows.length > 0 ? civilServiceRows.map((cse, index) => (
+                        <div key={index} className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div><p className="text-muted-foreground">Eligibility:</p><p className="font-medium">{cse.eligibility || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Rating:</p><p className="font-medium">{cse.rating || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Exam Date:</p><p className="font-medium">{cse.examDate || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Exam Place:</p><p className="font-medium">{cse.examPlace || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">License #:</p><p className="font-medium">{cse.licenseNumber || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Valid Until:</p><p className="font-medium">{cse.licenseValidUntil || "N/A"}</p></div>
+                          </div>
+                        </div>
+                      )) : <p className="text-sm text-muted-foreground">No civil service eligibility listed.</p>}
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-3 space-y-3">
+                    <h4 className="font-semibold text-sm">V. Work Experience</h4>
+                    <div className="space-y-2">
+                      {workRows.length > 0 ? workRows.map((work, index) => (
+                        <div key={index} className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="col-span-2"><p className="text-muted-foreground">Position Title:</p><p className="font-medium">{work.positionTitle || "N/A"}</p></div>
+                            <div className="col-span-2"><p className="text-muted-foreground">Department/Agency/Company:</p><p className="font-medium">{work.departmentAgencyOfficeCompany || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">From:</p><p className="font-medium">{work.dateFrom || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">To:</p><p className="font-medium">{work.dateTo || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Status:</p><p className="font-medium">{work.statusOfAppointment || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Govt Service:</p><p className="font-medium">{work.isGovtService || "N/A"}</p></div>
+                          </div>
+                        </div>
+                      )) : <p className="text-sm text-muted-foreground">No work experience listed.</p>}
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-3 space-y-3">
+                    <h4 className="font-semibold text-sm">VI. Voluntary Work or Involvement in Civic/Non-Government/People/Voluntary Organizations</h4>
+                    <div className="space-y-2">
+                      {voluntaryRows.length > 0 ? voluntaryRows.map((vol, index) => (
+                        <div key={index} className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="col-span-2"><p className="text-muted-foreground">Organization:</p><p className="font-medium">{vol.organizationNameAddress || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">From:</p><p className="font-medium">{vol.dateFrom || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">To:</p><p className="font-medium">{vol.dateTo || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Hours:</p><p className="font-medium">{vol.numberOfHours || "N/A"}</p></div>
+                            <div className="col-span-2"><p className="text-muted-foreground">Position/Nature of Work:</p><p className="font-medium">{vol.positionNatureOfWork || "N/A"}</p></div>
+                          </div>
+                        </div>
+                      )) : <p className="text-sm text-muted-foreground">No voluntary work listed.</p>}
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-3 space-y-3">
+                    <h4 className="font-semibold text-sm">VII. Learning and Development (L&D) Interventions/Training Programs Attended</h4>
+                    <div className="space-y-2">
+                      {trainingRows.length > 0 ? trainingRows.map((training, index) => (
+                        <div key={index} className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="col-span-2"><p className="text-muted-foreground">Training Title:</p><p className="font-medium">{training.title || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">From:</p><p className="font-medium">{training.dateFrom || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">To:</p><p className="font-medium">{training.dateTo || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Hours:</p><p className="font-medium">{training.numberOfHours || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Type:</p><p className="font-medium">{training.typeOfLd || "N/A"}</p></div>
+                            <div className="col-span-2"><p className="text-muted-foreground">Conducted/Sponsored By:</p><p className="font-medium">{training.conductedSponsoredBy || "N/A"}</p></div>
+                          </div>
+                        </div>
+                      )) : <p className="text-sm text-muted-foreground">No training records listed.</p>}
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-3 space-y-3">
+                    <h4 className="font-semibold text-sm">VIII. Other Information</h4>
+                    <div className="space-y-2">
+                      {otherInfoRows.length > 0 ? otherInfoRows.map((info, index) => (
+                        <div key={index} className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                          <div className="grid grid-cols-1 gap-2">
+                            <div><p className="text-muted-foreground">Special Skills/Hobbies:</p><p className="font-medium">{info.specialSkillsHobbies || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Non-Academic Distinctions:</p><p className="font-medium">{info.nonAcademicDistinctionsRecognition || "N/A"}</p></div>
+                            <div><p className="text-muted-foreground">Memberships:</p><p className="font-medium">{info.membershipsAssociationOrganization || "N/A"}</p></div>
+                          </div>
+                        </div>
+                      )) : <p className="text-sm text-muted-foreground">No other information listed.</p>}
+                    </div>
+                    <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+                      <p className="text-muted-foreground mb-2">References:</p>
+                      <p className="font-medium whitespace-pre-wrap">{applicant.referencesInfo || "N/A"}</p>
                     </div>
                   </div>
                   {apps.length > 0 && (

@@ -117,6 +117,27 @@ export async function logout() {
   return apiFetch<void>("/auth/logout", { method: "POST" });
 }
 
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return apiFetch<{ message: string }>("/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+}
+
+export async function requestPasswordReset(email: string) {
+  return apiFetch<{ message: string }>("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email })
+  });
+}
+
+export async function resetPassword(token: string, newPassword: string) {
+  return apiFetch<{ message: string }>("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, newPassword })
+  });
+}
+
 export async function fetchMe() {
   return apiFetch<{ user: User }>("/me");
 }

@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { requestPasswordReset } from "@/lib/api";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -14,6 +16,9 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   if (user) return <Navigate to="/dashboard" replace />;
 
@@ -28,6 +33,28 @@ export default function Login() {
         description: result.error ?? "Invalid email or password.",
         variant: "destructive"
       });
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const targetEmail = forgotEmail.trim() || email.trim();
+    if (!targetEmail) {
+      toast({ title: "Email required", description: "Enter your work email to request a reset.", variant: "destructive" });
+      return;
+    }
+
+    setForgotLoading(true);
+    try {
+      await requestPasswordReset(targetEmail);
+      toast({
+        title: "Reset link sent",
+        description: "If the email exists, instructions were sent to that inbox."
+      });
+      setForgotOpen(false);
+    } catch (error) {
+      toast({ title: "Request failed", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -84,6 +111,47 @@ export default function Login() {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                <div className="flex justify-end">
+                  <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+                    <DialogTrigger asChild>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-primary hover:underline"
+                        onClick={() => setForgotEmail(email)}
+                      >
+                        Forgot password?
+                      </button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Reset your password</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="forgot-email">Work Email</Label>
+                          <Input
+                            id="forgot-email"
+                            type="email"
+                            placeholder="name@wmsu.edu.ph"
+                            value={forgotEmail}
+                            onChange={(e) => setForgotEmail(e.target.value)}
+                          />
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          We will send a password reset link if the account exists.
+                        </div>
+                        <div className="flex justify-end gap-3">
+                          <Button variant="outline" type="button" onClick={() => setForgotOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button type="button" onClick={handleForgotPassword} disabled={forgotLoading}>
+                            {forgotLoading ? "Sending..." : "Send reset link"}
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </div>
               <Button type="submit" className="w-full">
                 Sign In
@@ -95,16 +163,9 @@ export default function Login() {
           </CardContent>
         </Card>
 
-        {/* Test Accounts */}
-        <Card className="bg-accent border-accent">
-          <CardContent className="pt-4 pb-4">
-            <p className="text-xs font-semibold text-accent-foreground mb-2">Test Accounts</p>
-            <div className="space-y-1 text-xs text-muted-foreground">
-              <p><strong>Admin:</strong> admin@wmsu.edu.ph / password123</p>
-              <p><strong>Staff:</strong> hrstaff@wmsu.edu.ph / password123</p>
-            </div>
-          </CardContent>
-        </Card>
+        <p className="text-center text-xs text-muted-foreground">
+          Use your assigned WMSU HRMO account. Admin and staff accounts can use the forgot-password link if they cannot log in.
+        </p>
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import multer from "multer";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
 import nodemailer from "nodemailer";
+import { createHash, randomBytes } from "node:crypto";
 import { initDb, query } from "./db.js";
 import { ensureDepartments, ensureTestAccounts, seedIfEmpty } from "./seed.js";
 import helmet from "helmet";
@@ -298,7 +299,7 @@ function canTransitionStatus(currentStatus: string, nextStatus: string) {
 
 type RejectionSubtype = "not_qualified" | "non_teaching" | "teaching";
 
-type EmailTemplateKey = RejectionSubtype | "qualification_notice";
+type EmailTemplateKey = RejectionSubtype | "qualification_notice" | "hired";
 
 type EmailTemplateRecord = {
   template_key: EmailTemplateKey;
@@ -399,6 +400,26 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     ].join("\n"),
     updated_at: ""
   }
+  ,
+  {
+    template_key: "hired",
+    template_name: "Hired Notice",
+    template_group: "qualification",
+    subject: "Application Status Update: Hired",
+    body: [
+      "Date: {{date}}",
+      "",
+      "Dear {{applicantName}}:",
+      "",
+      "Congratulations! We are pleased to inform you that you have been selected and marked as hired for the position of {{jobTitle}}.",
+      "Please await further communication from the HR Office regarding appointment details and next steps.",
+      "",
+      "Very truly yours,",
+      "",
+      "WMSU HR Office"
+    ].join("\n"),
+    updated_at: ""
+  }
 ];
 
 function renderTemplateText(template: string, variables: Record<string, string>) {
@@ -407,6 +428,21 @@ function renderTemplateText(template: string, variables: Record<string, string>)
 
 function formatTemplateDate(value: Date = new Date()) {
   return value.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
+const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+function hashPasswordResetToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function getFrontendBaseUrl(req?: Request) {
+  return process.env.FRONTEND_URL ?? req?.get("origin") ?? "http://localhost:8080";
+}
+
+function buildPasswordResetUrl(token: string, req?: Request) {
+  const baseUrl = getFrontendBaseUrl(req).replace(/\/$/, "");
+  return `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
 }
 
 async function ensureEmailTemplates() {
@@ -550,6 +586,20 @@ async function sendApplicationStatusEmail(payload: {
     }
   }
 
+  // Use hired template if status is Hired
+  if (payload.status === "Hired") {
+    const template = await fetchEmailTemplateByKey("hired") ?? DEFAULT_EMAIL_TEMPLATES.find((entry) => entry.template_key === "hired") ?? null;
+    if (template) {
+      subject = template.subject;
+      body = renderTemplateText(template.body, {
+        applicantName: payload.applicantName,
+        jobTitle: payload.jobTitle,
+        date: formattedDate,
+        today: formattedDate
+      });
+    }
+  }
+
   if (payload.status === "Rejected" && payload.rejectionTemplateText?.trim()) {
     body = renderTemplateText(payload.rejectionTemplateText.trim(), {
       applicantName: payload.applicantName,
@@ -607,6 +657,62 @@ async function sendApplicationStatusEmail(payload: {
   const info = await transporter.sendMail({
     from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
     to: payload.applicantEmail,
+    subject,
+    html
+  });
+
+  return {
+    sent: true,
+    status: "accepted" as const,
+    providerResponse: info.response ?? "Accepted by SMTP transport",
+    messageId: info.messageId,
+    accepted: Array.isArray(info.accepted) ? info.accepted : [],
+    rejected: Array.isArray(info.rejected) ? info.rejected : [],
+    subject,
+    html
+  };
+}
+
+async function sendPasswordResetEmail(payload: {
+  email: string;
+  name: string;
+  resetUrl: string;
+}) {
+  const subject = "Reset your WMSU HRMO Tracker password";
+  const html = `
+    <p>Good day, ${payload.name}.</p>
+    <p>We received a request to reset your password for the WMSU HRMO Tracker.</p>
+    <p><a href="${payload.resetUrl}">Click here to reset your password</a></p>
+    <p>If you did not request this, you can ignore this email.</p>
+    <p><em>This is an auto-generated email. Please do not reply.</em></p>
+  `;
+
+  if (!EMAIL_ENABLED) {
+    console.log(`[Email disabled] Password reset for: ${payload.email} | ${payload.resetUrl}`);
+    return {
+      sent: false,
+      status: "disabled" as const,
+      providerResponse: "SMTP is not configured.",
+      accepted: [] as string[],
+      rejected: [] as string[],
+      subject,
+      html
+    };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT ?? 587),
+    secure: process.env.SMTP_SECURE === "true",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  });
+
+  const info = await transporter.sendMail({
+    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+    to: payload.email,
     subject,
     html
   });
@@ -960,6 +1066,118 @@ app.post("/api/auth/login", authLimiter, asyncHandler(async (req, res) => {
 app.post("/api/auth/logout", authLimiter, requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
   logAudit(req, "logout", req.user?.id);
   res.status(204).send();
+}));
+
+app.post("/api/auth/forgot-password", authLimiter, asyncHandler(async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email?.trim()) {
+    res.status(400).json({ error: "Email is required" });
+    return;
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = await fetchOne<{ id: string; name: string; email: string; is_active: boolean }>(
+    "SELECT id, name, email, is_active FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1",
+    [normalizedEmail]
+  );
+
+  if (!user || user.is_active === false) {
+    logAudit(req, "password_reset_requested", undefined, { email: normalizedEmail, found: false });
+    res.json({ message: "If an account exists for that email, a reset link has been sent." });
+    return;
+  }
+
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = hashPasswordResetToken(token);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + PASSWORD_RESET_TOKEN_TTL_MS).toISOString();
+
+  await query("DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL", [user.id]);
+  await query(
+    "INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)",
+    [randomUUID(), user.id, tokenHash, expiresAt, now.toISOString()]
+  );
+
+  const resetUrl = buildPasswordResetUrl(token, req);
+  const emailResult = await sendPasswordResetEmail({
+    email: user.email,
+    name: user.name,
+    resetUrl
+  });
+
+  logAudit(req, emailResult.sent ? "password_reset_email_sent" : "password_reset_email_disabled", user.id, {
+    email: user.email,
+    providerResponse: emailResult.providerResponse
+  });
+
+  res.json({ message: "If an account exists for that email, a reset link has been sent." });
+}));
+
+app.post("/api/auth/reset-password", authLimiter, asyncHandler(async (req, res) => {
+  const { token, newPassword } = req.body as { token?: string; newPassword?: string };
+  if (!token?.trim() || !newPassword || newPassword.length < 6) {
+    res.status(400).json({ error: "Token and a new password of at least 6 characters are required." });
+    return;
+  }
+
+  const tokenHash = hashPasswordResetToken(token.trim());
+  const now = new Date().toISOString();
+  const result = await query<{
+    user_id: string;
+  }>(
+    `
+      WITH valid_token AS (
+        UPDATE password_reset_tokens
+        SET used_at = $3
+        WHERE token_hash = $1
+          AND used_at IS NULL
+          AND expires_at > $3
+        RETURNING user_id
+      )
+      UPDATE users
+      SET password_hash = $2
+      WHERE id = (SELECT user_id FROM valid_token)
+      RETURNING id AS user_id
+    `,
+    [tokenHash, bcrypt.hashSync(newPassword, 10), now]
+  );
+
+  if (result.rowCount === 0) {
+    res.status(400).json({ error: "The reset link is invalid or has expired." });
+    return;
+  }
+
+  logAudit(req, "password_reset_completed", undefined, { userId: result.rows[0].user_id });
+  res.json({ message: "Password reset successful." });
+}));
+
+app.post("/api/auth/change-password", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
+  const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
+
+  if (!currentPassword || !newPassword || newPassword.length < 6) {
+    res.status(400).json({ error: "currentPassword and a new password of at least 6 characters are required." });
+    return;
+  }
+
+  const user = await fetchOne<{ id: string; password_hash: string }>(
+    "SELECT id, password_hash FROM users WHERE id = $1 LIMIT 1",
+    [req.user?.id]
+  );
+
+  if (!user || !bcrypt.compareSync(currentPassword, user.password_hash)) {
+    res.status(400).json({ error: "Current password is incorrect." });
+    return;
+  }
+
+  const passwordHash = bcrypt.hashSync(newPassword, 10);
+  await query("UPDATE users SET password_hash = $2 WHERE id = $1", [user.id, passwordHash]);
+
+  logAudit(req, "password_changed", req.user?.id, {
+    targetUserId: req.user?.id,
+    selfService: true
+  });
+
+  res.json({ message: "Password updated successfully." });
 }));
 
 app.post("/api/auth/register", asyncHandler(async (req, res) => {
@@ -1606,7 +1824,7 @@ app.post("/api/applicants", requireAuth, asyncHandler(async (req: AuthedRequest,
       mother_name, mother_surname, mother_first_name, mother_middle_name,
       civil_service_eligibility, voluntary_work, trainings, other_info, references_info,
       educational_background, work_experience
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49) 
     `,
     [
       applicantId,
