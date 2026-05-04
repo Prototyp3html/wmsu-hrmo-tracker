@@ -15,11 +15,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchApplicants, fetchApplications, fetchEmailTemplates, fetchJobs, fetchStatusHistory, updateApplicationStatus } from "@/lib/api";
+import {
+  deleteApplicant,
+  fetchApplicants,
+  fetchApplications,
+  fetchEmailTemplates,
+  fetchJobs,
+  fetchStatusHistory,
+  updateApplicationStatus
+} from "@/lib/api";
 import { allStatuses, getStatusColor, getNextSuggestedStatus } from "@/lib/status";
 import type { Application, ApplicationStatus, EmailTemplate } from "@/lib/types";
-import { Clock, MessageSquare, ArrowRight, Lightbulb, Ellipsis } from "lucide-react";
+import { Clock, MessageSquare, ArrowRight, Lightbulb, Ellipsis, Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useNavigate } from "react-router-dom";
 
 type RejectionSubtype = "not_qualified" | "non_teaching" | "teaching";
 
@@ -39,6 +48,7 @@ function renderTemplateText(template: string, variables: Record<string, string>)
 export default function ApplicationTracking() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedApp, setSelectedApp] = useState<Application | null>(null);
   const [statusForm, setStatusForm] = useState<{
@@ -97,6 +107,18 @@ export default function ApplicationTracking() {
     },
     onError: (error) => {
       toast({ title: "Update failed", description: (error as Error).message, variant: "destructive" });
+    }
+  });
+
+  const deleteApplicantMutation = useMutation({
+    mutationFn: deleteApplicant,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["applicants"] });
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      toast({ title: "Applicant deleted", description: "The applicant record was removed." });
+    },
+    onError: (error) => {
+      toast({ title: "Delete failed", description: (error as Error).message, variant: "destructive" });
     }
   });
 
@@ -230,6 +252,30 @@ export default function ApplicationTracking() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem onClick={() => navigate(`/applicants?view=${encodeURIComponent(app.applicantId)}`)}>
+                          <Eye className="w-4 h-4 mr-2" />
+                          View Applicant
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => navigate(`/applicants?edit=${encodeURIComponent(app.applicantId)}`)}>
+                          <Pencil className="w-4 h-4 mr-2" />
+                          Edit Applicant
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => navigate(`/applicants?apply=${encodeURIComponent(app.applicantId)}`)}>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Apply
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => {
+                            const applicantName = getApplicantName(app.applicantId);
+                            if (window.confirm(`Delete ${applicantName}? This also removes their application records.`)) {
+                              deleteApplicantMutation.mutate(app.applicantId);
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete Applicant
+                        </DropdownMenuItem>
                         {getNextSuggestedStatus(app.status) && (
                           <DropdownMenuItem onClick={() => setSuggestedApp(app)}>
                             <Lightbulb className="w-4 h-4 mr-2" />

@@ -9,12 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createApplicant,
@@ -23,7 +17,6 @@ import {
   fetchApplications,
   fetchJobs,
   updateApplicant,
-  deleteApplicant,
   uploadApplicantDocument,
   parseApplicantDocument,
   fetchApplicantDocuments,
@@ -31,8 +24,9 @@ import {
 } from "@/lib/api";
 import type { Applicant, ApplicantDocument, Application, ParsedApplicantDraft } from "@/lib/types";
 import { getStatusColor } from "@/lib/status";
-import { Plus, Search, Eye, Mail, Phone, MapPin, GraduationCap, Briefcase, Upload, Pencil, Trash2, Ellipsis, Check, ChevronsUpDown, Download } from "lucide-react";
+import { Plus, Search, Mail, Phone, MapPin, GraduationCap, Briefcase, Upload, Check, ChevronsUpDown, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useSearchParams } from "react-router-dom";
 
 type NameParts = {
   firstName: string;
@@ -918,6 +912,7 @@ function SearchableSelect({
 export default function Applicants() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
@@ -2054,6 +2049,109 @@ export default function Applicants() {
     return result;
   }, [applicants, applications, search, statusFilter]);
 
+  const openViewApplicant = (applicantId: string) => {
+    setViewingApplicantId(applicantId);
+    setShowView(true);
+  };
+
+  const openEditApplicant = (applicant: Applicant) => {
+    setEditingApplicantId(applicant.id);
+    setEditFormState({
+      fullName: applicant.fullName,
+      contactNumber: applicant.contactNumber,
+      telephoneNumber: applicant.telephoneNumber,
+      email: applicant.email,
+      address: applicant.address,
+      permanentAddress: applicant.permanentAddress,
+      dateOfBirth: applicant.dateOfBirth,
+      placeOfBirth: applicant.placeOfBirth,
+      sex: applicant.sex,
+      civilStatus: applicant.civilStatus,
+      citizenship: applicant.citizenship,
+      height: applicant.height,
+      weight: applicant.weight,
+      bloodType: applicant.bloodType,
+      gsisIdNo: applicant.gsisIdNo,
+      philsysNo: applicant.philsysNo,
+      pagibigIdNo: applicant.pagibigIdNo,
+      philhealthNo: applicant.philhealthNo,
+      citizenshipDetails: applicant.citizenshipDetails,
+      sssNo: applicant.sssNo,
+      tinNo: applicant.tinNo,
+      agencyEmployeeNo: applicant.agencyEmployeeNo,
+      spouseName: applicant.spouseName,
+      spouseSurname: applicant.spouseSurname,
+      spouseFirstName: applicant.spouseFirstName,
+      spouseMiddleName: applicant.spouseMiddleName,
+      spouseNameExtension: applicant.spouseNameExtension,
+      spouseOccupation: applicant.spouseOccupation,
+      spouseEmployerBusinessName: applicant.spouseEmployerBusinessName,
+      spouseBusinessAddress: applicant.spouseBusinessAddress,
+      spouseTelephoneNo: applicant.spouseTelephoneNo,
+      childrenInfo: applicant.childrenInfo,
+      fatherName: applicant.fatherName,
+      fatherSurname: applicant.fatherSurname,
+      fatherFirstName: applicant.fatherFirstName,
+      fatherMiddleName: applicant.fatherMiddleName,
+      fatherNameExtension: applicant.fatherNameExtension,
+      motherName: applicant.motherName,
+      motherSurname: applicant.motherSurname,
+      motherFirstName: applicant.motherFirstName,
+      motherMiddleName: applicant.motherMiddleName,
+      civilServiceEligibility: applicant.civilServiceEligibility,
+      voluntaryWork: applicant.voluntaryWork,
+      trainings: applicant.trainings,
+      otherInfo: applicant.otherInfo,
+      referencesInfo: applicant.referencesInfo,
+      educationalBackground: applicant.educationalBackground,
+      workExperience: applicant.workExperience
+    });
+    setEditDocuments({ resume: null, transcript: null, certificates: [] });
+    setShowEdit(true);
+  };
+
+  const openApplicantApplicationForm = (applicantId: string) => {
+    setSelectedApplicantForApp(applicantId);
+    setShowCreateApp(true);
+  };
+
+  useEffect(() => {
+    const actionChecks: Array<["view" | "edit" | "apply", string | null]> = [
+      ["view", searchParams.get("view")],
+      ["edit", searchParams.get("edit")],
+      ["apply", searchParams.get("apply")]
+    ];
+    const targetAction = actionChecks.find(([, value]) => Boolean(value));
+    if (!targetAction) return;
+
+    const [action, applicantId] = targetAction;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete(action);
+
+    const applicant = applicants.find((entry) => entry.id === applicantId);
+    if (!applicant) {
+      toast({
+        title: "Applicant not found",
+        description: "The selected applicant record was not found.",
+        variant: "destructive"
+      });
+      setSearchParams(nextParams, { replace: true });
+      return;
+    }
+
+    if (action === "view") {
+      openViewApplicant(applicant.id);
+    }
+    if (action === "edit") {
+      openEditApplicant(applicant);
+    }
+    if (action === "apply") {
+      openApplicantApplicationForm(applicant.id);
+    }
+
+    setSearchParams(nextParams, { replace: true });
+  }, [applicants, searchParams, setSearchParams, toast]);
+
   const createMutation = useMutation({
     mutationFn: async (payload: typeof formState) => {
       const applicant = await createApplicant(payload);
@@ -2111,16 +2209,6 @@ export default function Applicants() {
     }
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: deleteApplicant,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["applicants"] });
-      toast({ title: "Applicant deleted", description: "The applicant was removed." });
-    },
-    onError: (error) => {
-      toast({ title: "Delete failed", description: (error as Error).message, variant: "destructive" });
-    }
-  });
   const createAppMutation = useMutation({
     mutationFn: createApplication,
     onSuccess: () => {
@@ -3940,7 +4028,6 @@ export default function Applicants() {
                     <TableHead className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Contact</TableHead>
                     <TableHead className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Address</TableHead>
                     <TableHead className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Status</TableHead>
-                    <TableHead className="h-12 px-4 text-[11px] font-semibold text-right text-primary-foreground uppercase tracking-wide">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -3950,9 +4037,10 @@ export default function Applicants() {
                     return (
                       <TableRow
                         key={applicant.id}
-                        className={`border-b border-border/20 h-14 transition-colors ${
+                        className={`border-b border-border/20 h-14 cursor-pointer transition-colors ${
                           idx % 2 === 0 ? "bg-background hover:bg-muted/30" : "bg-muted/10 hover:bg-muted/20"
                         }`}
+                        onClick={() => openViewApplicant(applicant.id)}
                       >
                         <TableCell className="px-4 py-3 text-sm font-medium text-foreground truncate">
                           {applicant.fullName}
@@ -3974,108 +4062,6 @@ export default function Applicants() {
                           ) : (
                             <span className="text-xs text-muted-foreground italic">No app</span>
                           )}
-                        </TableCell>
-                        <TableCell className="px-4 py-3 text-right">
-                          <div className="flex justify-end">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label="Open actions menu">
-                                  <Ellipsis className="w-4 h-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-40">
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setViewingApplicantId(applicant.id);
-                                    setShowView(true);
-                                  }}
-                                >
-                                  <Eye className="w-4 h-4 mr-2" />
-                                  View
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setEditingApplicantId(applicant.id);
-                                    setEditFormState({
-                                      fullName: applicant.fullName,
-                                      contactNumber: applicant.contactNumber,
-                                      telephoneNumber: applicant.telephoneNumber,
-                                      email: applicant.email,
-                                      address: applicant.address,
-                                      permanentAddress: applicant.permanentAddress,
-                                      dateOfBirth: applicant.dateOfBirth,
-                                      placeOfBirth: applicant.placeOfBirth,
-                                      sex: applicant.sex,
-                                      civilStatus: applicant.civilStatus,
-                                      citizenship: applicant.citizenship,
-                                      height: applicant.height,
-                                      weight: applicant.weight,
-                                      bloodType: applicant.bloodType,
-                                      gsisIdNo: applicant.gsisIdNo,
-                                      philsysNo: applicant.philsysNo,
-                                      pagibigIdNo: applicant.pagibigIdNo,
-                                      philhealthNo: applicant.philhealthNo,
-                                      citizenshipDetails: applicant.citizenshipDetails,
-                                      sssNo: applicant.sssNo,
-                                      tinNo: applicant.tinNo,
-                                      agencyEmployeeNo: applicant.agencyEmployeeNo,
-                                      spouseName: applicant.spouseName,
-                                      spouseSurname: applicant.spouseSurname,
-                                      spouseFirstName: applicant.spouseFirstName,
-                                      spouseMiddleName: applicant.spouseMiddleName,
-                                      spouseNameExtension: applicant.spouseNameExtension,
-                                      spouseOccupation: applicant.spouseOccupation,
-                                      spouseEmployerBusinessName: applicant.spouseEmployerBusinessName,
-                                      spouseBusinessAddress: applicant.spouseBusinessAddress,
-                                      spouseTelephoneNo: applicant.spouseTelephoneNo,
-                                      childrenInfo: applicant.childrenInfo,
-                                      fatherName: applicant.fatherName,
-                                      fatherSurname: applicant.fatherSurname,
-                                      fatherFirstName: applicant.fatherFirstName,
-                                      fatherMiddleName: applicant.fatherMiddleName,
-                                      fatherNameExtension: applicant.fatherNameExtension,
-                                      motherName: applicant.motherName,
-                                      motherSurname: applicant.motherSurname,
-                                      motherFirstName: applicant.motherFirstName,
-                                      motherMiddleName: applicant.motherMiddleName,
-                                      civilServiceEligibility: applicant.civilServiceEligibility,
-                                      voluntaryWork: applicant.voluntaryWork,
-                                      trainings: applicant.trainings,
-                                      otherInfo: applicant.otherInfo,
-                                      referencesInfo: applicant.referencesInfo,
-                                      educationalBackground: applicant.educationalBackground,
-                                      workExperience: applicant.workExperience
-                                    });
-                                    setEditDocuments({ resume: null, transcript: null, certificates: [] });
-                                    setShowEdit(true);
-                                  }}
-                                >
-                                  <Pencil className="w-4 h-4 mr-2" />
-                                  Edit
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setSelectedApplicantForApp(applicant.id);
-                                    setShowCreateApp(true);
-                                  }}
-                                >
-                                  <Plus className="w-4 h-4 mr-2" />
-                                  Apply
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onClick={() => {
-                                    if (window.confirm(`Delete ${applicant.fullName}?`)) {
-                                      deleteMutation.mutate(applicant.id);
-                                    }
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4 mr-2" />
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
                         </TableCell>
                       </TableRow>
                     );
