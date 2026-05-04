@@ -5,33 +5,66 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { fetchApplicants, fetchApplications, fetchEvaluations, fetchJobs, fetchReportsSummary } from "@/lib/api";
 import { allStatuses, getStatusColor } from "@/lib/status";
-import { BodyText, LabelText, MetricValue, PageTitle, SectionTitle } from "@/components/ui/typography";
-import { Award, Briefcase, FilterX, SlidersHorizontal, TrendingUp, UserCheck, Users } from "lucide-react";
-import { Area, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Award, Briefcase, ChevronRight, FilterX, SlidersHorizontal, TrendingUp, UserCheck, Users, Clock } from "lucide-react";
+import {
+  Area,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-const pieColors = [
-  "hsl(217, 91%, 60%)",
-  "hsl(38, 92%, 50%)",
-  "hsl(348, 83%, 40%)",
-  "hsl(190, 80%, 42%)",
-  "hsl(142, 71%, 45%)"
-];
+const PIE_COLORS = ["hsl(217, 91%, 60%)", "hsl(38, 92%, 50%)", "hsl(142, 71%, 45%)"];
 
-function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name?: string; value?: number }>; label?: string }) {
-  if (!active || !payload || payload.length === 0) return null;
-
-  const applications = payload.find((item) => item.name === "Applications")?.value ?? 0;
-  const hired = payload.find((item) => item.name === "Hired")?.value ?? 0;
-
+/* ── Tooltip ── */
+function TrendTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ name?: string; value?: number }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const applications = payload.find((p) => p.name === "Applications")?.value ?? 0;
+  const hired = payload.find((p) => p.name === "Hired")?.value ?? 0;
   return (
-    <div className="rounded-lg border border-border bg-card/95 shadow-md px-3 py-2 text-xs space-y-1">
-      <BodyText className="font-semibold text-foreground">{label}</BodyText>
-      <BodyText className="text-muted-foreground">
-        <span className="font-medium text-foreground">Applications:</span> {applications}
-      </BodyText>
-      <BodyText className="text-muted-foreground">
-        <span className="font-medium text-foreground">Hired:</span> {hired}
-      </BodyText>
+    <div className="rounded-xl border border-border bg-card shadow-lg px-4 py-3 text-xs space-y-1.5 min-w-[140px]">
+      <p className="font-semibold text-foreground text-[13px]">{label}</p>
+      <div className="flex items-center justify-between gap-6">
+        <span className="text-muted-foreground">Applications</span>
+        <span className="font-semibold text-foreground tabular-nums">{applications}</span>
+      </div>
+      <div className="flex items-center justify-between gap-6">
+        <span className="text-muted-foreground">Hired</span>
+        <span className="font-semibold text-success tabular-nums">{hired}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ── Pipeline stage bar ── */
+function PipelineBar({ label, count, total, color }: { label: string; count: number; total: number; color: string }) {
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground font-medium truncate max-w-[160px]">{label}</span>
+        <span className="tabular-nums font-semibold text-foreground ml-2">{count}</span>
+      </div>
+      <div className="h-2 rounded-full bg-muted overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${color}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }
@@ -42,7 +75,7 @@ export default function Dashboard() {
   const [filterPositionLevel, setFilterPositionLevel] = useState("all");
   const [filterMonth, setFilterMonth] = useState("all");
   const [filterJobType, setFilterJobType] = useState("all");
-  const [sortBy, setSortBy] = useState("date");
+  const [sortBy, setSortBy] = useState("score");
 
   const { data: applicants = [] } = useQuery({ queryKey: ["applicants"], queryFn: fetchApplicants });
   const { data: jobVacancies = [] } = useQuery({ queryKey: ["jobs"], queryFn: fetchJobs });
@@ -53,23 +86,19 @@ export default function Dashboard() {
   const filteredApplications = useMemo(() => {
     return applications.filter((app) => {
       if (filterStatus !== "all" && app.status !== filterStatus) return false;
-
       if (filterPositionLevel !== "all") {
         const vacancy = jobVacancies.find((v) => v.id === app.vacancyId);
         if (vacancy && vacancy.positionLevel !== filterPositionLevel) return false;
       }
-
       if (filterMonth !== "all") {
         const appDate = new Date(app.dateApplied);
         const appMonthYear = `${appDate.getFullYear()}-${String(appDate.getMonth() + 1).padStart(2, "0")}`;
         if (appMonthYear !== filterMonth) return false;
       }
-
       if (filterJobType !== "all") {
         const vacancy = jobVacancies.find((v) => v.id === app.vacancyId);
         if (vacancy && vacancy.positionTitle !== filterJobType) return false;
       }
-
       return true;
     });
   }, [applications, jobVacancies, filterStatus, filterPositionLevel, filterMonth, filterJobType]);
@@ -80,7 +109,6 @@ export default function Dashboard() {
         const evaluation = evaluations.find((e) => e.applicationId === app.id);
         const applicant = applicants.find((a) => a.id === app.applicantId);
         const vacancy = jobVacancies.find((v) => v.id === app.vacancyId);
-
         return {
           applicationId: app.id,
           applicantName: applicant?.fullName ?? "Unknown",
@@ -88,15 +116,12 @@ export default function Dashboard() {
           score: evaluation?.totalScore ?? 0,
           status: app.status,
           hasEvaluation: Boolean(evaluation),
-          dateApplied: app.dateApplied
+          dateApplied: app.dateApplied,
         };
       })
       .filter((item) => item.hasEvaluation);
 
-    if (sortBy === "score") {
-      return withScores.sort((a, b) => b.score - a.score).slice(0, 6);
-    }
-
+    if (sortBy === "score") return withScores.sort((a, b) => b.score - a.score).slice(0, 6);
     return withScores
       .sort((a, b) => new Date(b.dateApplied).getTime() - new Date(a.dateApplied).getTime())
       .slice(0, 6);
@@ -106,11 +131,10 @@ export default function Dashboard() {
     const passingScreening = filteredApplications.filter(
       (a) => a.status !== "Application Received" && a.status !== "Rejected"
     ).length;
-
-    const passRate = filteredApplications.length > 0
-      ? Math.round((passingScreening / filteredApplications.length) * 100)
-      : 0;
-
+    const passRate =
+      filteredApplications.length > 0
+        ? Math.round((passingScreening / filteredApplications.length) * 100)
+        : 0;
     return { passingScreening, passRate };
   }, [filteredApplications]);
 
@@ -125,82 +149,23 @@ export default function Dashboard() {
   }, [applications]);
 
   const availableJobTypes = useMemo(() => {
-    const jobTypesSet = new Set<string>();
-    jobVacancies.forEach((job) => jobTypesSet.add(job.positionTitle));
-    return Array.from(jobTypesSet).sort();
+    const s = new Set<string>();
+    jobVacancies.forEach((job) => s.add(job.positionTitle));
+    return Array.from(s).sort();
   }, [jobVacancies]);
-
-  const positionLevelData = useMemo(() => {
-    return ["first_level", "second_level"].map((level) => {
-      const appsInLevel = applications.filter((app) => {
-        const vacancy = jobVacancies.find((v) => v.id === app.vacancyId);
-        return vacancy?.positionLevel === level;
-      });
-
-      const evaluatedCount = appsInLevel.filter((app) => evaluations.find((e) => e.applicationId === app.id)).length;
-      const avgScore = evaluatedCount > 0
-        ? appsInLevel.reduce((sum, app) => {
-            const evaluation = evaluations.find((e) => e.applicationId === app.id);
-            return sum + (evaluation?.totalScore ?? 0);
-          }, 0) / evaluatedCount
-        : 0;
-
-      return {
-        name: level === "first_level" ? "First Level" : "Second Level",
-        evaluated: evaluatedCount,
-        avgScore: Math.round(avgScore * 100) / 100,
-        total: appsInLevel.length
-      };
-    });
-  }, [applications, jobVacancies, evaluations]);
-
-  const statCards = [
-    {
-      label: "Total Job Vacancies",
-      value: summary?.totalJobs ?? jobVacancies.length,
-      icon: Briefcase,
-      color: "text-info",
-      bg: "bg-info/10"
-    },
-    {
-      label: "Total Applicants",
-      value: summary?.totalApplicants ?? applicants.length,
-      icon: Users,
-      color: "text-primary",
-      bg: "bg-primary/10"
-    },
-    {
-      label: "Passing Screening",
-      value: screeningStats.passingScreening,
-      icon: TrendingUp,
-      color: "text-success",
-      bg: "bg-success/10"
-    },
-    {
-      label: "Screening Rate",
-      value: `${screeningStats.passRate}%`,
-      icon: UserCheck,
-      color: "text-warning",
-      bg: "bg-warning/10"
-    }
-  ];
 
   const monthlyTrendData = useMemo(() => {
     const monthMap = new Map<string, { month: string; applications: number; hired: number }>();
-
     filteredApplications.forEach((app) => {
       const date = new Date(app.dateApplied);
       if (Number.isNaN(date.getTime())) return;
-
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
       const month = date.toLocaleString("en-US", { month: "short", year: "numeric" });
       const current = monthMap.get(key) ?? { month, applications: 0, hired: 0 };
-
       current.applications += 1;
       if (app.status === "Hired") current.hired += 1;
       monthMap.set(key, current);
     });
-
     return Array.from(monthMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, value]) => value);
@@ -209,13 +174,22 @@ export default function Dashboard() {
   const vacancyStatusData = [
     { name: "Open", value: jobVacancies.filter((v) => v.status === "Open").length },
     { name: "Closed", value: jobVacancies.filter((v) => v.status === "Closed").length },
-    { name: "Filled", value: jobVacancies.filter((v) => v.status === "Filled").length }
+    { name: "Filled", value: jobVacancies.filter((v) => v.status === "Filled").length },
   ];
-
   const totalVacancies = vacancyStatusData.reduce((sum, item) => sum + item.value, 0);
 
+  /* ── Pipeline breakdown by status ── */
+  const pipelineData = useMemo(() => {
+    const total = filteredApplications.length;
+    return allStatuses.map((status) => ({
+      label: status,
+      count: filteredApplications.filter((a) => a.status === status).length,
+      total,
+    }));
+  }, [filteredApplications]);
+
   const activeFilters = useMemo(
-    () => [filterStatus, filterPositionLevel, filterMonth, filterJobType].filter((value) => value !== "all").length,
+    () => [filterStatus, filterPositionLevel, filterMonth, filterJobType].filter((v) => v !== "all").length,
     [filterStatus, filterPositionLevel, filterMonth, filterJobType]
   );
 
@@ -224,124 +198,93 @@ export default function Dashboard() {
     setFilterPositionLevel("all");
     setFilterMonth("all");
     setFilterJobType("all");
-    setSortBy("date");
   };
 
+  const statCards = [
+    {
+      label: "Total Vacancies",
+      value: summary?.totalJobs ?? jobVacancies.length,
+      icon: Briefcase,
+      accent: "text-blue-600 dark:text-blue-400",
+      bg: "bg-blue-50 dark:bg-blue-950/50",
+      border: "border-blue-100 dark:border-blue-900/60",
+    },
+    {
+      label: "Total Applicants",
+      value: summary?.totalApplicants ?? applicants.length,
+      icon: Users,
+      accent: "text-primary",
+      bg: "bg-primary/8 dark:bg-primary/15",
+      border: "border-primary/15 dark:border-primary/25",
+    },
+    {
+      label: "Passing Screening",
+      value: screeningStats.passingScreening,
+      icon: TrendingUp,
+      accent: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-50 dark:bg-emerald-950/50",
+      border: "border-emerald-100 dark:border-emerald-900/60",
+    },
+    {
+      label: "Screening Rate",
+      value: `${screeningStats.passRate}%`,
+      icon: UserCheck,
+      accent: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-50 dark:bg-amber-950/50",
+      border: "border-amber-100 dark:border-amber-900/60",
+    },
+  ];
+
+  /* ── Pipeline bar colors by status index ── */
+  const pipelineColors = [
+    "bg-blue-400",
+    "bg-amber-400",
+    "bg-purple-400",
+    "bg-cyan-400",
+    "bg-pink-400",
+    "bg-emerald-400",
+    "bg-green-500",
+    "bg-red-400",
+  ];
+
+  const now = new Date();
+  const greeting =
+    now.getHours() < 12 ? "Good morning" : now.getHours() < 18 ? "Good afternoon" : "Good evening";
+
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 pb-8 space-y-6">
-      <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-card via-card to-accent/20 p-5 sm:p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <PageTitle className="leading-tight">Dashboard</PageTitle>
-            <BodyText className="mt-2 max-w-2xl text-muted-foreground">
-              Welcome back, {user?.name}. Monitor hiring performance, spot bottlenecks, and track applicant progress in one place.
-            </BodyText>
-          </div>
-          <div className="grid grid-cols-2 gap-2 min-w-[220px]">
-            <div className="rounded-xl border border-border/70 bg-background/70 px-3 py-2">
-              <LabelText>Filtered</LabelText>
-              <MetricValue className="text-lg">{filteredApplications.length}</MetricValue>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/70 px-3 py-2">
-              <LabelText>Active Filters</LabelText>
-              <MetricValue className="text-lg">{activeFilters}</MetricValue>
-            </div>
-          </div>
+    <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 pb-8 space-y-5">
+
+      {/* ── Header ── */}
+      <div className="flex flex-col gap-1.5 pt-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
+          <Clock className="w-3.5 h-3.5" />
+          {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
         </div>
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+          {greeting}, {user?.name?.split(" ")[0]}.
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Here's what's happening across your hiring pipeline today.
+        </p>
       </div>
 
-      <Card className="border border-border/60 bg-card/80 shadow-sm">
-        <CardContent className="pt-4 pb-4">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <div className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-              <SlidersHorizontal className="w-4 h-4 text-primary" />
-              <SectionTitle>Dashboard Filters</SectionTitle>
-            </div>
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <FilterX className="w-3.5 h-3.5" />
-              Reset
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-            <div className="space-y-1.5">
-              <LabelText>Month</LabelText>
-              <Select value={filterMonth} onValueChange={setFilterMonth}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Months</SelectItem>
-                  {availableMonths.map((month) => {
-                    const [year, monthNum] = month.split("-");
-                    const monthName = new Date(parseInt(year), parseInt(monthNum) - 1).toLocaleString("en-US", { month: "long", year: "numeric" });
-                    return <SelectItem key={month} value={month}>{monthName}</SelectItem>;
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <LabelText>Job Type</LabelText>
-              <Select value={filterJobType} onValueChange={setFilterJobType}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Job Types</SelectItem>
-                  {availableJobTypes.map((jobType) => (
-                    <SelectItem key={jobType} value={jobType}>{jobType}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <LabelText>Status</LabelText>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  {allStatuses.map((status) => (
-                    <SelectItem key={status} value={status}>{status}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <LabelText>Position Level</LabelText>
-              <Select value={filterPositionLevel} onValueChange={setFilterPositionLevel}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Levels</SelectItem>
-                  <SelectItem value="first_level">First Level</SelectItem>
-                  <SelectItem value="second_level">Second Level</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <LabelText>Top Applicants</LabelText>
-              <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="score">Highest Score</SelectItem>
-                  <SelectItem value="date">Latest</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/* ── Stat cards ── */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3.5">
         {statCards.map((card) => (
-          <Card key={card.label} className="border border-border/60 shadow-sm hover:shadow-md transition-all duration-200">
-            <CardContent className="pt-5 pb-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <LabelText>{card.label}</LabelText>
-                  <MetricValue className="mt-2">{card.value}</MetricValue>
+          <Card
+            key={card.label}
+            className={`border ${card.border} shadow-none hover:shadow-sm transition-shadow duration-200`}
+          >
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground truncate">{card.label}</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-foreground tabular-nums mt-1 leading-none">
+                    {card.value}
+                  </p>
                 </div>
-                <div className={`${card.bg} p-2.5 rounded-xl ring-1 ring-border/50`}>
-                  <card.icon className={`w-5 h-5 ${card.color}`} />
+                <div className={`${card.bg} p-2 rounded-lg shrink-0`}>
+                  <card.icon className={`w-4 h-4 ${card.accent}`} />
                 </div>
               </div>
             </CardContent>
@@ -349,120 +292,179 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <Card className="xl:col-span-8 border border-border/60 shadow-sm overflow-hidden">
-          <CardContent className="pt-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <SectionTitle>Hiring Trend</SectionTitle>
-                <BodyText className="text-xs text-muted-foreground">Applications vs hires over time</BodyText>
+      {/* ── Filters ── */}
+      <Card className="border border-border/60 shadow-none">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-primary" />
+              <span className="text-sm font-semibold text-foreground">Filters</span>
+              {activeFilters > 0 && (
+                <span className="text-[10px] font-bold bg-primary text-primary-foreground rounded-full w-4 h-4 flex items-center justify-center">
+                  {activeFilters}
+                </span>
+              )}
+            </div>
+            {activeFilters > 0 && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <FilterX className="w-3 h-3" />
+                Clear all
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-5 gap-2">
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Month</label>
+              <Select value={filterMonth} onValueChange={setFilterMonth}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Months</SelectItem>
+                  {availableMonths.map((m) => {
+                    const [yr, mn] = m.split("-");
+                    return (
+                      <SelectItem key={m} value={m}>
+                        {new Date(parseInt(yr), parseInt(mn) - 1).toLocaleString("en-US", {
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Job Type</label>
+              <Select value={filterJobType} onValueChange={setFilterJobType}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {availableJobTypes.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Status</label>
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  {allStatuses.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Level</label>
+              <Select value={filterPositionLevel} onValueChange={setFilterPositionLevel}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Levels</SelectItem>
+                  <SelectItem value="first_level">First Level</SelectItem>
+                  <SelectItem value="second_level">Second Level</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2 sm:col-span-4 xl:col-span-1 flex items-end">
+              <div className="w-full rounded-lg border border-border/60 bg-muted/30 px-3 py-1.5 flex items-center justify-between">
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Showing</span>
+                <span className="text-sm font-bold text-foreground tabular-nums">{filteredApplications.length}</span>
               </div>
             </div>
-            <div className="rounded-xl border border-border/60 bg-gradient-to-b from-muted/25 to-background p-3">
-              <ResponsiveContainer width="100%" height={290}>
-                <LineChart data={monthlyTrendData} margin={{ top: 10, right: 12, left: 2, bottom: 6 }}>
-                  <defs>
-                    <linearGradient id="applicationsFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.14} />
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="hiredFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--success))" stopOpacity={0.12} />
-                      <stop offset="95%" stopColor="hsl(var(--success))" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--foreground))" strokeOpacity={0.08} vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} allowDecimals={false} tickLine={false} axisLine={false} width={28} />
-                  <Tooltip content={<TrendTooltip />} cursor={{ stroke: "hsl(var(--primary))", strokeOpacity: 0.18, strokeDasharray: "4 4" }} />
-                  <Area type="monotone" dataKey="applications" fill="url(#applicationsFill)" stroke="none" />
-                  <Area type="monotone" dataKey="hired" fill="url(#hiredFill)" stroke="none" />
-                  <Line type="monotone" dataKey="applications" name="Applications" stroke="hsl(var(--primary))" strokeWidth={2.8} dot={false} />
-                  <Line type="monotone" dataKey="hired" name="Hired" stroke="hsl(var(--success))" strokeWidth={2.8} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Charts row ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+
+        {/* Hiring trend */}
+        <Card className="xl:col-span-8 border border-border/60 shadow-none">
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Hiring Trend</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Applications vs. hires over time</p>
+              </div>
+              {/* Legend */}
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-0.5 rounded bg-primary inline-block" />
+                  Applications
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-0.5 rounded bg-emerald-500 inline-block" />
+                  Hired
+                </span>
+              </div>
             </div>
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={monthlyTrendData} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="appFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.12} />
+                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="hireFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(142,71%,45%)" stopOpacity={0.1} />
+                    <stop offset="95%" stopColor="hsl(142,71%,45%)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} strokeOpacity={0.6} />
+                <XAxis dataKey="month" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} allowDecimals={false} tickLine={false} axisLine={false} width={24} />
+                <Tooltip content={<TrendTooltip />} cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} />
+                <Area type="monotone" dataKey="applications" fill="url(#appFill)" stroke="none" />
+                <Area type="monotone" dataKey="hired" fill="url(#hireFill)" stroke="none" />
+                <Line type="monotone" dataKey="applications" name="Applications" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
+                <Line type="monotone" dataKey="hired" name="Hired" stroke="hsl(142,71%,45%)" strokeWidth={2.5} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        <Card className="xl:col-span-4 border border-border/60 shadow-sm">
-          <CardContent className="pt-5">
-            <SectionTitle className="mb-4">Job Summary</SectionTitle>
-            <div className="relative rounded-xl border border-border/60 bg-muted/20 p-2">
-              <ResponsiveContainer width="100%" height={230}>
+        {/* Vacancy donut */}
+        <Card className="xl:col-span-4 border border-border/60 shadow-none">
+          <CardContent className="p-5">
+            <p className="text-sm font-semibold text-foreground mb-1">Job Vacancies</p>
+            <p className="text-xs text-muted-foreground mb-4">By current status</p>
+            <div className="relative">
+              <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
-                  <Pie data={vacancyStatusData} cx="50%" cy="50%" innerRadius={64} outerRadius={92} paddingAngle={5} dataKey="value" stroke="hsl(var(--background))" strokeWidth={2}>
+                  <Pie
+                    data={vacancyStatusData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={56}
+                    outerRadius={80}
+                    paddingAngle={4}
+                    dataKey="value"
+                    stroke="none"
+                  >
                     {vacancyStatusData.map((_, idx) => (
-                      <Cell key={idx} fill={pieColors[idx]} />
+                      <Cell key={idx} fill={PIE_COLORS[idx]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip formatter={(value, name) => [value, name]} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <LabelText>Total</LabelText>
-                <MetricValue className="text-2xl">{totalVacancies}</MetricValue>
+                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Total</p>
+                <p className="text-3xl font-bold text-foreground tabular-nums leading-none mt-0.5">{totalVacancies}</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <Card className="xl:col-span-8 border border-border/60 shadow-sm">
-          <CardContent className="pt-5">
-            <div className="flex items-center justify-between mb-4">
-              <SectionTitle>Recent Applications</SectionTitle>
-              <LabelText className="text-muted-foreground">Showing latest 8 entries</LabelText>
-            </div>
-            <div className="overflow-auto max-h-[340px] rounded-lg border border-border/60 bg-background">
-              <table className="w-full text-sm min-w-[500px]">
-                <thead className="sticky top-0 bg-card z-10">
-                  <tr className="border-b text-left">
-                    <th className="py-3 px-3 font-medium text-muted-foreground"><LabelText>Applicant</LabelText></th>
-                    <th className="py-3 px-3 font-medium text-muted-foreground"><LabelText>Position</LabelText></th>
-                    <th className="py-3 px-3 font-medium text-muted-foreground hidden sm:table-cell"><LabelText>Date Applied</LabelText></th>
-                    <th className="py-3 px-3 font-medium text-muted-foreground"><LabelText>Status</LabelText></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredApplications.slice(0, 8).map((app, idx) => {
-                    const applicant = applicants.find((a) => a.id === app.applicantId);
-                    const vacancy = jobVacancies.find((v) => v.id === app.vacancyId);
-                    return (
-                      <tr key={app.id} className={`border-b last:border-0 ${idx % 2 === 0 ? "bg-background" : "bg-muted/10"} hover:bg-accent/40`}>
-                        <td className="py-3 px-3 font-medium text-foreground whitespace-nowrap">{applicant?.fullName}</td>
-                        <td className="py-3 px-3 text-muted-foreground whitespace-nowrap max-w-[180px] truncate">{vacancy?.positionTitle}</td>
-                        <td className="py-3 px-3 text-muted-foreground hidden sm:table-cell">{app.dateApplied}</td>
-                        <td className="py-3 px-3">
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${getStatusColor(app.status)}`}>{app.status}</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="xl:col-span-4 border border-border/60 shadow-sm">
-          <CardContent className="pt-5">
-            <SectionTitle className="mb-4">Position Level Performance</SectionTitle>
-            <div className="space-y-4">
-              {positionLevelData.map((level) => (
-                <div key={level.name} className="border rounded-lg p-3 hover:bg-accent/20 transition-all duration-200">
-                  <div className="flex justify-between items-start mb-2">
-                    <BodyText className="font-medium text-foreground">{level.name}</BodyText>
-                    <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded [font-variant-numeric:tabular-nums]">{level.evaluated}/{level.total}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <LabelText className="text-muted-foreground">Avg Score</LabelText>
-                    <MetricValue className="text-base">{level.avgScore}</MetricValue>
-                  </div>
-                  <div className="mt-2 bg-secondary h-2 rounded overflow-hidden">
-                    <div className="bg-success h-full transition-all" style={{ width: level.total > 0 ? `${level.avgScore}%` : "0%" }} />
-                  </div>
+            {/* Legend */}
+            <div className="space-y-2 mt-3">
+              {vacancyStatusData.map((item, idx) => (
+                <div key={item.name} className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    <span className="w-2 h-2 rounded-full inline-block" style={{ background: PIE_COLORS[idx] }} />
+                    {item.name}
+                  </span>
+                  <span className="font-semibold text-foreground tabular-nums">{item.value}</span>
                 </div>
               ))}
             </div>
@@ -470,29 +472,132 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <Card className="border border-border/60 shadow-sm">
-        <CardContent className="pt-5">
-          <SectionTitle className="mb-4 flex items-center gap-2">
-            <Award className="w-4 h-4" /> Top Rated Applicants
-          </SectionTitle>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {topRatedApplicants.length > 0 ? (
-              topRatedApplicants.map((app) => (
-                <div key={app.applicationId} className="border rounded-lg p-3 hover:bg-accent/30 transition-all duration-200">
-                  <div className="flex justify-between items-start mb-1">
-                    <div>
-                      <BodyText className="font-medium text-foreground">{app.applicantName}</BodyText>
-                      <LabelText className="text-muted-foreground">{app.position}</LabelText>
-                    </div>
-                    <MetricValue className="text-lg text-success">{app.score}</MetricValue>
-                  </div>
-                  <span className={`rounded-full px-2 py-1 text-xs font-medium ${getStatusColor(app.status)}`}>{app.status}</span>
-                </div>
-              ))
-            ) : (
-              <BodyText className="italic text-muted-foreground">No evaluated applicants yet</BodyText>
-            )}
+      {/* ── Pipeline + Applicant table row ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+
+        {/* Pipeline breakdown */}
+        <Card className="xl:col-span-4 border border-border/60 shadow-none">
+          <CardContent className="p-5">
+            <p className="text-sm font-semibold text-foreground mb-1">Application Pipeline</p>
+            <p className="text-xs text-muted-foreground mb-4">Breakdown by stage</p>
+            <div className="space-y-3">
+              {pipelineData.map((stage, idx) => (
+                <PipelineBar
+                  key={stage.label}
+                  label={stage.label}
+                  count={stage.count}
+                  total={stage.total}
+                  color={pipelineColors[idx] ?? "bg-gray-400"}
+                />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Recent applications table */}
+        <Card className="xl:col-span-8 border border-border/60 shadow-none">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Recent Applications</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Latest 8 entries</p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border/60 overflow-hidden">
+              <div className="overflow-auto max-h-[340px]">
+                <table className="w-full text-sm min-w-[480px]">
+                  <thead>
+                    <tr className="bg-muted/40 border-b border-border/60">
+                      <th className="py-2.5 px-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Applicant</th>
+                      <th className="py-2.5 px-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Position</th>
+                      <th className="py-2.5 px-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Date</th>
+                      <th className="py-2.5 px-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {filteredApplications.slice(0, 8).map((app) => {
+                      const applicant = applicants.find((a) => a.id === app.applicantId);
+                      const vacancy = jobVacancies.find((v) => v.id === app.vacancyId);
+                      return (
+                        <tr key={app.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3 px-3 font-medium text-foreground whitespace-nowrap">{applicant?.fullName}</td>
+                          <td className="py-3 px-3 text-muted-foreground max-w-[160px] truncate">{vacancy?.positionTitle}</td>
+                          <td className="py-3 px-3 text-muted-foreground hidden sm:table-cell whitespace-nowrap text-xs">{app.dateApplied}</td>
+                          <td className="py-3 px-3">
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium whitespace-nowrap ${getStatusColor(app.status)}`}>
+                              {app.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Top Rated Applicants ── */}
+      <Card className="border border-border/60 shadow-none">
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Award className="w-4 h-4 text-amber-500" />
+              <p className="text-sm font-semibold text-foreground">Top Rated Applicants</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground">Sort by</label>
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="h-7 text-xs w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="score">Highest Score</SelectItem>
+                  <SelectItem value="date">Latest</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+
+          {topRatedApplicants.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {topRatedApplicants.map((app, idx) => (
+                <div
+                  key={app.applicationId}
+                  className="flex items-center gap-3 rounded-xl border border-border/60 p-3.5 hover:bg-muted/30 transition-colors"
+                >
+                  {/* Rank badge */}
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                    idx === 0 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400" :
+                    idx === 1 ? "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" :
+                    idx === 2 ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400" :
+                    "bg-muted text-muted-foreground"
+                  }`}>
+                    {idx + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{app.applicantName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{app.position}</p>
+                    <span className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${getStatusColor(app.status)}`}>
+                      {app.status}
+                    </span>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">{app.score}</p>
+                    <p className="text-[10px] text-muted-foreground">score</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Award className="w-10 h-10 text-muted-foreground/30 mb-3" />
+              <p className="text-sm text-muted-foreground">No evaluated applicants yet</p>
+              <p className="text-xs text-muted-foreground/70 mt-1">Evaluations will appear here once submitted</p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

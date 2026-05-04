@@ -386,8 +386,6 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_group: "qualification",
     subject: "Application Status Update: Qualified",
     body: [
-      "Date: {{date}}",
-      "",
       "Dear {{applicantName}},",
       "",
       "This refers to your application for the position of {{jobTitle}} at Western Mindanao State University.",
@@ -407,8 +405,6 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_group: "qualification",
     subject: "Application Status Update: Hired",
     body: [
-      "Date: {{date}}",
-      "",
       "Dear {{applicantName}}:",
       "",
       "Congratulations! We are pleased to inform you that you have been selected and marked as hired for the position of {{jobTitle}}.",
@@ -624,10 +620,10 @@ async function sendApplicationStatusEmail(payload: {
 
   const html = `
     <p>${greeting}, ${payload.applicantName}.</p>
-    <p><strong>Date:</strong> ${formattedDate}</p>
+    ${/\bDate:\s*/i.test(body) ? "" : `<p><strong>Date:</strong> ${formattedDate}</p>`}
     <p>${body.split('\n').join('</p><p>')}</p>
     ${payload.remarks ? `<p><strong>Additional Remarks:</strong> ${payload.remarks}</p>` : ""}
-    <p>From WMSU HR Office</p>
+    <p>From WMSU HRMO</p>
     <p><em>This is an auto-generated email. Please do not reply.</em></p>
   `;
 
@@ -678,10 +674,10 @@ async function sendPasswordResetEmail(payload: {
   name: string;
   resetUrl: string;
 }) {
-  const subject = "Reset your WMSU HRMO Tracker password";
+  const subject = "Reset your WMSU HRMO password";
   const html = `
     <p>Good day, ${payload.name}.</p>
-    <p>We received a request to reset your password for the WMSU HRMO Tracker.</p>
+    <p>We received a request to reset your password for the WMSU HRMO.</p>
     <p><a href="${payload.resetUrl}">Click here to reset your password</a></p>
     <p>If you did not request this, you can ignore this email.</p>
     <p><em>This is an auto-generated email. Please do not reply.</em></p>
