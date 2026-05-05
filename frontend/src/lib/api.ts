@@ -150,7 +150,7 @@ export async function fetchUsers() {
   return apiFetch<User[]>("/users");
 }
 
-export async function createUser(payload: { name: string; email: string; password: string; role: string }) {
+export async function createUser(payload: { name: string; email: string; password: string; role: string; isActive?: boolean }) {
   return apiFetch<User>("/users", {
     method: "POST",
     body: JSON.stringify(payload)
@@ -240,6 +240,62 @@ export async function updateJob(id: string, payload: Omit<JobVacancy, "id">) {
 
 export async function deleteJob(id: string) {
   return apiFetch<void>(`/jobs/${id}`, { method: "DELETE" });
+}
+
+export async function fetchArchivedVacancies() {
+  return apiFetch<Array<{
+    id: string;
+    originalJobId: string;
+    positionTitle: string;
+    departmentId: string;
+    salaryGrade: number;
+    description: string;
+    qualifications: string;
+    postingDate: string;
+    closingDate: string;
+    archivedAt: string;
+    archiveDurationDays: number;
+    createdAt: string;
+    daysUntilDeletion: number;
+  }>>("/archived-vacancies");
+}
+
+export async function getArchivedVacancy(id: string) {
+  return apiFetch<{
+    id: string;
+    originalJobId: string;
+    positionTitle: string;
+    departmentId: string;
+    salaryGrade: number;
+    description: string;
+    qualifications: string;
+    postingDate: string;
+    closingDate: string;
+    archivedAt: string;
+    archiveDurationDays: number;
+    createdAt: string;
+  }>(`/archived-vacancies/${id}`);
+}
+
+export async function restoreArchivedVacancy(id: string) {
+  return apiFetch<{ success: boolean; message: string }>(`/archived-vacancies/${id}/restore`, {
+    method: "POST"
+  });
+}
+
+// Settings API functions
+export async function getArchiveDurationSetting() {
+  return apiFetch<{ days: number }>("/settings/archive-duration");
+}
+
+export async function updateArchiveDurationSetting(days: number) {
+  return apiFetch<{ success: boolean; message: string; days: number }>(
+    "/settings/archive-duration",
+    {
+      method: "POST",
+      body: JSON.stringify({ days })
+    }
+  );
 }
 
 export async function fetchApplicants() {

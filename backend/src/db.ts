@@ -371,4 +371,81 @@ export async function initDb() {
     ADD COLUMN IF NOT EXISTS other_info TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS references_info TEXT NOT NULL DEFAULT '';
   `).catch(() => {});
+
+  // Add archived_vacancies table for vacancy lifecycle management
+  await query(`
+    CREATE TABLE IF NOT EXISTS archived_vacancies (
+      id TEXT PRIMARY KEY,
+      original_job_id TEXT NOT NULL,
+      position_title TEXT NOT NULL,
+      department_id TEXT NOT NULL REFERENCES departments(id),
+      salary_grade INTEGER NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      qualifications TEXT NOT NULL,
+      posting_date TEXT NOT NULL,
+      closing_date TEXT NOT NULL,
+      archived_at TEXT NOT NULL,
+      archive_duration_days INTEGER NOT NULL DEFAULT 30,
+      deleted_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_archived_vacancies_created_at ON archived_vacancies(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_archived_vacancies_deleted_at ON archived_vacancies(deleted_at);
+  `).catch(() => {});
+
+  // Add archived_at and archive_duration_days columns to job_vacancies if they don't exist
+  await query(`
+    ALTER TABLE job_vacancies
+    ADD COLUMN IF NOT EXISTS archived_at TEXT,
+    ADD COLUMN IF NOT EXISTS archive_duration_days INTEGER NOT NULL DEFAULT 30;
+  `).catch(() => {});
+
+  // Add application settings table for system configuration
+  await query(`
+    CREATE TABLE IF NOT EXISTS application_settings (
+      setting_key TEXT PRIMARY KEY,
+      setting_value TEXT NOT NULL,
+      setting_type TEXT NOT NULL,
+      description TEXT,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT
+    );
+  `).catch(() => {});
+
+  // Initialize default archive duration setting if it doesn't exist
+  await query(`
+    INSERT INTO application_settings (setting_key, setting_value, setting_type, description, updated_at)
+    SELECT 'archive_duration_days', '30', 'integer', 'Number of days before archived vacancies are permanently deleted', NOW()::TEXT
+    WHERE NOT EXISTS (SELECT 1 FROM application_settings WHERE setting_key = 'archive_duration_days');
+  `).catch(() => {});
+}
+
+export async function getArchiveDuration(): Promise<number> {
+  try {
+    const result = await query<{ setting_value: string }>(
+      "SELECT setting_value FROM application_settings WHERE setting_key = $1",
+      ["archive_duration_days"]
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      return parseInt(result.rows[0].setting_value, 10) || 30;
+    }
+  } catch (error) {
+    console.error("Error fetching archive duration:", error);
+  }
+  return 30; // Default fallback
+}
+
+export async function setArchiveDuration(days: number, updatedBy?: string): Promise<void> {
+  try {
+    await query(
+      `UPDATE application_settings 
+       SET setting_value = $1, updated_at = $2, updated_by = $3
+       WHERE setting_key = 'archive_duration_days'`,
+      [String(days), new Date().toISOString(), updatedBy || null]
+    );
+  } catch (error) {
+    console.error("Error updating archive duration:", error);
+    throw error;
+  }
 }

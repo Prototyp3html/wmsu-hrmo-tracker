@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,10 +15,113 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createUser, deleteUser, fetchUsers, resetUserPassword, setUserStatus, updateUser } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
-import { KeyRound, Pencil, Plus, Search, Shield, ShieldCheck, Trash2, UserCheck, UserX, Ellipsis } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Pencil, Plus, Search, Shield, ShieldCheck, Trash2, UserCheck, UserX, Ellipsis } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+
+/* ── Password strength helpers ── */
+function getPasswordStrength(password: string): { score: number; label: string; color: string } {
+  if (!password) return { score: 0, label: "", color: "" };
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (password.length >= 12) score++;
+  if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  if (score <= 1) return { score: 1, label: "Weak", color: "bg-destructive" };
+  if (score <= 2) return { score: 2, label: "Fair — add a number or symbol", color: "bg-warning" };
+  if (score <= 3) return { score: 3, label: "Good", color: "bg-info" };
+  return { score: 4, label: "Strong", color: "bg-success" };
+}
+
+function PasswordStrengthBar({ password }: { password: string }) {
+  const { score, label, color } = getPasswordStrength(password);
+  if (!password) return null;
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="flex gap-1">
+        {[1, 2, 3, 4].map((i) => (
+          <div
+            key={i}
+            className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${i <= score ? color : "bg-muted"}`}
+          />
+        ))}
+      </div>
+      <p className={`text-[11px] ${score <= 1 ? "text-destructive" : score <= 2 ? "text-warning" : score <= 3 ? "text-info" : "text-success"}`}>
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function PasswordInput({
+  value,
+  onChange,
+  placeholder,
+  id,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  id?: string;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="pr-9"
+      />
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+        aria-label={show ? "Hide password" : "Show password"}
+      >
+        {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+      </button>
+    </div>
+  );
+}
+
+function RoleSelector({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const roles = [
+    { value: "staff", label: "HR Staff", icon: Shield },
+    { value: "admin", label: "HR Admin", icon: ShieldCheck },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {roles.map((role) => (
+        <button
+          key={role.value}
+          type="button"
+          onClick={() => onChange(role.value)}
+          className={`rounded-lg border p-2 transition-all duration-150 flex items-center gap-2 ${
+            value === role.value
+              ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+              : "border-border hover:border-border/80 hover:bg-muted/30"
+          }`}
+        >
+          <role.icon className={`w-3.5 h-3.5 ${value === role.value ? "text-primary" : "text-muted-foreground"}`} />
+          <span className={`text-xs font-semibold ${value === role.value ? "text-primary" : "text-foreground"}`}>
+            {role.label}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function UserManagement() {
   const { toast } = useToast();
@@ -27,6 +131,8 @@ export default function UserManagement() {
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [resetTarget, setResetTarget] = useState<{ id: string; name: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
@@ -34,8 +140,9 @@ export default function UserManagement() {
   const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "staff">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
 
-  const [formState, setFormState] = useState({ name: "", email: "", password: "", role: "staff" });
-  const [editFormState, setEditFormState] = useState({ name: "", email: "", password: "", role: "staff" });
+  const [formState, setFormState] = useState({ name: "", email: "", password: "", confirmPassword: "", role: "staff", activeOnCreate: true });
+  const [formErrors, setFormErrors] = useState<{ name?: string; email?: string; password?: string; confirmPassword?: string }>({});
+  const [editFormState, setEditFormState] = useState({ name: "", email: "", password: "", confirmPassword: "", role: "staff" });
 
   const { data: users = [] } = useQuery({ queryKey: ["users"], queryFn: fetchUsers });
 
@@ -53,11 +160,17 @@ export default function UserManagement() {
   }, [users, search, roleFilter, statusFilter]);
 
   const createMutation = useMutation({
-    mutationFn: createUser,
+    mutationFn: (payload: typeof formState) => createUser({
+      name: payload.name,
+      email: payload.email,
+      password: payload.password,
+      role: payload.role,
+      isActive: payload.activeOnCreate
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setShowCreate(false);
-      setFormState({ name: "", email: "", password: "", role: "staff" });
+      setFormState({ name: "", email: "", password: "", confirmPassword: "", role: "staff", activeOnCreate: true });
       toast({ title: "User created", description: "The user account was added." });
     },
     onError: (error) => {
@@ -128,12 +241,16 @@ export default function UserManagement() {
           <DialogTrigger asChild>
             <Button><Plus className="w-4 h-4 mr-2" /> Add User</Button>
           </DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Add New User</DialogTitle></DialogHeader>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>Improved modal</DialogTitle></DialogHeader>
             <form
               className="space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
+                if (formState.password !== formState.confirmPassword) {
+                  setFormErrors({ confirmPassword: "Passwords do not match" });
+                  return;
+                }
                 createMutation.mutate(formState);
               }}
             >
@@ -147,17 +264,39 @@ export default function UserManagement() {
               </div>
               <div className="space-y-2">
                 <Label>Password</Label>
-                <Input type="password" value={formState.password} onChange={(e) => setFormState((p) => ({ ...p, password: e.target.value }))} />
+                <PasswordInput
+                  id="pwd-create"
+                  value={formState.password}
+                  onChange={(v) => setFormState((p) => ({ ...p, password: v }))}
+                  placeholder="Enter password"
+                />
+                <PasswordStrengthBar password={formState.password} />
+              </div>
+              <div className="space-y-2">
+                <Label>Confirm Password</Label>
+                <PasswordInput
+                  id="pwd-confirm-create"
+                  value={formState.confirmPassword}
+                  onChange={(v) => setFormState((p) => ({ ...p, confirmPassword: v }))}
+                  placeholder="Re-enter password"
+                />
+                {formErrors.confirmPassword && (
+                  <p className="text-xs text-destructive">{formErrors.confirmPassword}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Role</Label>
-                <Select value={formState.role} onValueChange={(value) => setFormState((p) => ({ ...p, role: value }))}>
-                  <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">HR Admin</SelectItem>
-                    <SelectItem value="staff">HR Staff</SelectItem>
-                  </SelectContent>
-                </Select>
+                <RoleSelector
+                  value={formState.role}
+                  onChange={(v) => setFormState((p) => ({ ...p, role: v }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Account Status</Label>
+                <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <span className="text-sm text-foreground">Active on creation</span>
+                  <Switch checked={formState.activeOnCreate} onCheckedChange={(checked) => setFormState((p) => ({ ...p, activeOnCreate: checked }))} />
+                </div>
               </div>
               <Button className="w-full" type="submit" disabled={createMutation.isPending}>Create User</Button>
             </form>
@@ -200,6 +339,10 @@ export default function UserManagement() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!editingUserId) return;
+              if (editFormState.password && editFormState.password !== editFormState.confirmPassword) {
+                setFormErrors({ confirmPassword: "Passwords do not match" });
+                return;
+              }
               updateMutation.mutate({
                 id: editingUserId,
                 payload: {
@@ -221,17 +364,34 @@ export default function UserManagement() {
             </div>
             <div className="space-y-2">
               <Label>New Password (optional)</Label>
-              <Input type="password" value={editFormState.password} onChange={(e) => setEditFormState((p) => ({ ...p, password: e.target.value }))} />
+              <PasswordInput
+                id="pwd-edit"
+                value={editFormState.password}
+                onChange={(v) => setEditFormState((p) => ({ ...p, password: v }))}
+                placeholder="Leave blank to keep current password"
+              />
+              {editFormState.password && <PasswordStrengthBar password={editFormState.password} />}
             </div>
+            {editFormState.password && (
+              <div className="space-y-2">
+                <Label>Confirm Password</Label>
+                <PasswordInput
+                  id="pwd-confirm-edit"
+                  value={editFormState.confirmPassword}
+                  onChange={(v) => setEditFormState((p) => ({ ...p, confirmPassword: v }))}
+                  placeholder="Re-enter password"
+                />
+                {formErrors.confirmPassword && (
+                  <p className="text-xs text-destructive">{formErrors.confirmPassword}</p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Role</Label>
-              <Select value={editFormState.role} onValueChange={(value) => setEditFormState((p) => ({ ...p, role: value }))}>
-                <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">HR Admin</SelectItem>
-                  <SelectItem value="staff">HR Staff</SelectItem>
-                </SelectContent>
-              </Select>
+              <RoleSelector
+                value={editFormState.role}
+                onChange={(v) => setEditFormState((p) => ({ ...p, role: v }))}
+              />
             </div>
             <Button className="w-full" type="submit" disabled={updateMutation.isPending}>Save Changes</Button>
           </form>
@@ -266,6 +426,26 @@ export default function UserManagement() {
             </div>
             <Button className="w-full" type="submit" disabled={resetPasswordMutation.isPending}>Reset Password</Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete User</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <span className="font-semibold text-foreground">{deleteTarget?.name}</span>? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 justify-end">
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => {
+              if (deleteTarget) {
+                deleteMutation.mutate(deleteTarget.id);
+                setShowDeleteConfirm(false);
+              }
+            }}>Delete</Button>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -336,6 +516,7 @@ export default function UserManagement() {
                                   name: u.name,
                                   email: u.email,
                                   password: "",
+                                  confirmPassword: "",
                                   role: u.role
                                 });
                                 setShowEdit(true);
@@ -348,9 +529,8 @@ export default function UserManagement() {
                               className="text-destructive focus:text-destructive"
                               disabled={isCurrentUser || deleteMutation.isPending}
                               onClick={() => {
-                                if (window.confirm(`Delete ${u.name}?`)) {
-                                  deleteMutation.mutate(u.id);
-                                }
+                                setDeleteTarget({ id: u.id, name: u.name });
+                                setShowDeleteConfirm(true);
                               }}
                             >
                               <Trash2 className="w-4 h-4 mr-2" />

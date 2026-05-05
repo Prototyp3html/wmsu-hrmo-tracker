@@ -51,58 +51,84 @@ export default function ResetPassword() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center space-y-3">
-          <div className="mx-auto w-16 h-16 rounded-2xl bg-card ring-1 ring-border flex items-center justify-center shadow-lg">
-            <img src="/wmsu-seal.png" alt="WMSU seal" className="w-10 h-10" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold font-brand tracking-tight">
-              <span className="text-foreground">Reset </span>
-              <span className="text-primary">Password</span>
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">Create a new password for your HRMO account</p>
+    <div
+      className="min-h-screen flex items-stretch relative overflow-hidden"
+      style={{
+        backgroundImage: "url('/wmsu-building.jpg')",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundAttachment: "fixed",
+      }}
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-black/70 via-red-950/60 to-black/80 backdrop-blur-[2px]" />
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.55) 100%)",
+        }}
+      />
+
+      <div className="relative z-10 flex items-center justify-center w-full min-h-screen">
+        <div className="flex flex-col items-center justify-center w-full max-w-4xl p-6 lg:p-14">
+          <div className="w-full max-w-sm space-y-8" style={{ transform: "translateY(0)", opacity: 1 }}>
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 backdrop-blur-sm flex items-center justify-center shadow-xl">
+                <img src="/wmsu-seal.png" alt="WMSU seal" className="w-10 h-10" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-extrabold text-white tracking-tight drop-shadow">
+                  Reset <span className="text-red-400">Password</span>
+                </h1>
+                <p className="text-sm text-white/60 mt-0.5">Create a new password for your HRMO account</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/[0.97] dark:bg-card shadow-2xl shadow-black/40 border border-white/20 overflow-hidden">
+              <div className="h-1 w-full bg-gradient-to-r from-red-700 via-red-500 to-red-700" />
+              <div className="p-8 space-y-6">
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-extrabold text-foreground tracking-tight">Reset Password</h2>
+                  <p className="text-sm text-muted-foreground">Create a new password for your HRMO account</p>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-password">New Password</Label>
+                    <Input
+                      id="new-password"
+                      type="password"
+                      value={newPassword}
+                      onChange={(event) => setNewPassword(event.target.value)}
+                      placeholder="Enter your new password"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-password">Confirm Password</Label>
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      placeholder="Re-enter your new password"
+                    />
+                  </div>
+
+                  <Button type="submit" className="w-full" disabled={isSubmitting || !token}>
+                    {isSubmitting ? "Updating..." : "Update Password"}
+                  </Button>
+                  <Button variant="outline" className="w-full" asChild>
+                    <Link to="/login">Back to Login</Link>
+                  </Button>
+                  {!token && (
+                    <p className="text-xs text-destructive text-center">
+                      The reset link is missing its token. Please request a new password reset.
+                    </p>
+                  )}
+                </form>
+              </div>
+            </div>
           </div>
         </div>
-
-        <Card className="shadow-lg border-border/50">
-          <CardContent className="pt-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="new-password">New Password</Label>
-                <Input
-                  id="new-password"
-                  type="password"
-                  value={newPassword}
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  placeholder="Enter your new password"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirm-password">Confirm Password</Label>
-                <Input
-                  id="confirm-password"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  placeholder="Re-enter your new password"
-                />
-              </div>
-              <Button type="submit" className="w-full" disabled={isSubmitting || !token}>
-                {isSubmitting ? "Updating..." : "Update Password"}
-              </Button>
-              <Button variant="outline" className="w-full" asChild>
-                <Link to="/login">Back to Login</Link>
-              </Button>
-              {!token && (
-                <p className="text-xs text-destructive text-center">
-                  The reset link is missing its token. Please request a new password reset.
-                </p>
-              )}
-            </form>
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

@@ -24,7 +24,7 @@ import {
 } from "@/lib/api";
 import type { Applicant, ApplicantDocument, Application, ParsedApplicantDraft } from "@/lib/types";
 import { getStatusColor } from "@/lib/status";
-import { Plus, Search, Mail, Phone, MapPin, GraduationCap, Briefcase, Upload, Check, ChevronsUpDown, Download } from "lucide-react";
+import { Plus, Search, Mail, Phone, MapPin, GraduationCap, Briefcase, Upload, Check, ChevronsUpDown, Download, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "react-router-dom";
 
@@ -4028,19 +4028,20 @@ export default function Applicants() {
                     <TableHead className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Contact</TableHead>
                     <TableHead className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Address</TableHead>
                     <TableHead className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Status</TableHead>
+                    <TableHead className="h-12 px-4 text-right text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((applicant, idx) => {
                     const apps = getApplicantApplications(applicant.id);
                     const latestApp = apps.length > 0 ? apps[0] : null;
+                    const hasApplication = Boolean(latestApp);
                     return (
                       <TableRow
                         key={applicant.id}
-                        className={`border-b border-border/20 h-14 cursor-pointer transition-colors ${
+                        className={`border-b border-border/20 h-14 transition-colors ${
                           idx % 2 === 0 ? "bg-background hover:bg-muted/30" : "bg-muted/10 hover:bg-muted/20"
                         }`}
-                        onClick={() => openViewApplicant(applicant.id)}
                       >
                         <TableCell className="px-4 py-3 text-sm font-medium text-foreground truncate">
                           {applicant.fullName}
@@ -4060,8 +4061,22 @@ export default function Applicants() {
                               {latestApp.status}
                             </span>
                           ) : (
-                            <span className="text-xs text-muted-foreground italic">No app</span>
+                            <span className="text-xs text-muted-foreground italic">No application yet</span>
                           )}
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button type="button" variant="outline" size="sm" onClick={() => openViewApplicant(applicant.id)}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              View
+                            </Button>
+                            {!hasApplication && (
+                              <Button type="button" size="sm" onClick={() => openApplicantApplicationForm(applicant.id)}>
+                                <Briefcase className="mr-2 h-4 w-4" />
+                                Add to Vacancy
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -4097,9 +4112,9 @@ export default function Applicants() {
             return (
               <>
                 <DialogHeader className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between">
                     <DialogTitle className="pr-2">{applicant.fullName}</DialogTitle>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                       <Button
                         type="button"
                         variant="outline"
@@ -4327,6 +4342,22 @@ export default function Applicants() {
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+                  {apps.length === 0 && (
+                    <div className="border-t pt-3">
+                      <div className="rounded-md border border-dashed border-border/70 bg-muted/20 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Not yet linked to a vacancy</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Create an application first so this applicant appears in application tracking.
+                          </p>
+                        </div>
+                        <Button type="button" onClick={() => openApplicantApplicationForm(applicant.id)}>
+                          <Briefcase className="mr-2 h-4 w-4" />
+                          Add to Vacancy
+                        </Button>
+                      </div>
                     </div>
                   )}
                   {applicantDocuments.length > 0 && (

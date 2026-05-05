@@ -13,7 +13,7 @@ import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
 import nodemailer from "nodemailer";
 import { createHash, randomBytes } from "node:crypto";
-import { initDb, query } from "./db.js";
+import { initDb, query, getArchiveDuration, setArchiveDuration } from "./db.js";
 import { ensureDepartments, ensureTestAccounts, seedIfEmpty } from "./seed.js";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -426,6 +426,104 @@ function formatTemplateDate(value: Date = new Date()) {
   return value.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderTextBlockHtml(text: string) {
+  return text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      if (/^_+$/.test(line)) {
+        return `<div style="border-top: 1px solid #eab308; margin: 14px 0;"></div>`;
+      }
+
+      return `<p style="margin: 0 0 10px; line-height: 1.7; color: #1f2937;">${escapeHtml(line)}</p>`;
+    })
+    .join("");
+}
+
+function buildWmsuEmailShell(options: {
+  title: string;
+  subtitle: string;
+  badgeText: string;
+  summaryRows: Array<{ label: string; value: string }>;
+  contentHtml: string;
+  footerNote: string;
+}) {
+  const summaryHtml = options.summaryRows
+    .map(
+      (row) => `
+        <tr>
+          <td style="padding: 7px 0; color: #6b7280; font-size: 13px; width: 140px; vertical-align: top; border-bottom: 1px solid #f3f4f6;">${escapeHtml(row.label)}</td>
+          <td style="padding: 7px 0; color: #111827; font-size: 13px; font-weight: 600; vertical-align: top; border-bottom: 1px solid #f3f4f6;">${escapeHtml(row.value)}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  const _frontendBase = (process.env.FRONTEND_URL ?? "").replace(/\/$/, "");
+  const logoUrl = _frontendBase ? `${_frontendBase}/wmsu-seal.png` : undefined;
+  const logoLocalPath = path.resolve(__dirname, "../../frontend/public/wmsu-seal.png");
+  const useInlineLogo = fs.existsSync(logoLocalPath);
+
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta name="color-scheme" content="light only" />
+        <meta name="supported-color-schemes" content="light" />
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+      </head>
+      <body style="margin:0;padding:0;background:#ffffff;color:#111827;font-family: Arial, Helvetica, sans-serif;">
+        <div style="max-width:680px;margin:0 auto;padding:20px;">
+          <div style="border:0 solid transparent;background:#ffffff;">
+            <div style="padding-bottom:12px;border-bottom:1px solid #f3f4f6;">
+              <table role="presentation" style="width:100%;border-collapse:collapse;">
+                <tr>
+                  <td style="width:64px;vertical-align:middle;padding-right:8px;">
+                    ${useInlineLogo ? `<img src="cid:wmsu_seal" alt="WMSU" width="56" height="56" style="display:block;border:0;border-radius:6px;"/>` : (logoUrl ? `<img src="${logoUrl}" alt="WMSU" width="56" height="56" style="display:block;border:0;border-radius:6px;"/>` : "")}
+                  </td>
+                  <td style="vertical-align:middle;">
+                    <p style="margin:0;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#7f1d1d;font-weight:700;">Western Mindanao State University</p>
+                    <p style="margin:6px 0 0;font-size:16px;font-weight:700;color:#111827;">Human Resource Management Office</p>
+                  </td>
+                </tr>
+              </table>
+            </div>
+
+            <div style="padding:16px 0 0;">
+              <h1 style="margin:0 0 8px;font-size:22px;color:#111827;">${escapeHtml(options.title)}</h1>
+              <p style="margin:0 0 14px;color:#4b5563;font-size:14px;">${escapeHtml(options.subtitle)}</p>
+
+              <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:14px;">
+                ${summaryHtml}
+              </table>
+
+              <div style="padding:12px;border:1px solid #eef2f7;border-radius:8px;background:#ffffff;">
+                ${options.contentHtml}
+              </div>
+
+              <div style="margin-top:16px;padding-top:12px;border-top:1px solid #f3f4f6;color:#6b7280;font-size:12px;">
+                <p style="margin:0 0 6px;font-weight:700;color:#7f1d1d;">WMSU HRMO</p>
+                <p style="margin:0;">${escapeHtml(options.footerNote)}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
 const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 function hashPasswordResetToken(token: string) {
@@ -618,14 +716,27 @@ async function sendApplicationStatusEmail(payload: {
     .replace(/Date:\s*\n(?:_+\s*\n?){1,3}/i, `Date: ${formattedDate}\n`)
     .replace(/Date:\s*_+/i, `Date: ${formattedDate}`);
 
-  const html = `
-    <p>${greeting}, ${payload.applicantName}.</p>
-    ${/\bDate:\s*/i.test(body) ? "" : `<p><strong>Date:</strong> ${formattedDate}</p>`}
-    <p>${body.split('\n').join('</p><p>')}</p>
-    ${payload.remarks ? `<p><strong>Additional Remarks:</strong> ${payload.remarks}</p>` : ""}
-    <p>From WMSU HRMO</p>
-    <p><em>This is an auto-generated email. Please do not reply.</em></p>
-  `;
+  const bodyHtml = renderTextBlockHtml(body);
+  const remarksHtml = payload.remarks
+    ? `<div style="margin-top: 18px; padding: 14px 16px; background: #fff; border: 1px solid #f3d7ab; border-radius: 14px;"><p style="margin: 0 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7f1d1d;">Additional Remarks</p><p style="margin: 0; color: #374151; line-height: 1.6;">${escapeHtml(payload.remarks)}</p></div>`
+    : "";
+
+  const html = buildWmsuEmailShell({
+    title: `Application Status Update: ${payload.status}`,
+    subtitle: `${greeting}, ${payload.applicantName}. This is an official update from the WMSU Human Resource Management Office regarding your application for ${payload.jobTitle}.`,
+    badgeText: payload.status,
+    summaryRows: [
+      { label: "Applicant", value: payload.applicantName },
+      { label: "Position", value: payload.jobTitle },
+      { label: "Status", value: payload.status },
+      { label: "Date", value: formattedDate },
+    ],
+    contentHtml: `
+      <div style="font-size: 15px; line-height: 1.75; color: #1f2937;">${bodyHtml}</div>
+      ${remarksHtml}
+    `,
+    footerNote: "This is an auto-generated email from the WMSU HRMO. Please do not reply to this message."
+  });
 
   if (!EMAIL_ENABLED) {
     console.log(`[Email disabled] To: ${payload.applicantEmail} | Status: ${payload.status} | ${body}`);
@@ -650,11 +761,18 @@ async function sendApplicationStatusEmail(payload: {
     }
   });
 
+  const logoLocalPath = path.resolve(__dirname, "../../frontend/public/wmsu-seal.png");
+  const attachments: Array<any> = [];
+  if (fs.existsSync(logoLocalPath)) {
+    attachments.push({ filename: "wmsu-seal.png", path: logoLocalPath, cid: "wmsu_seal" });
+  }
+
   const info = await transporter.sendMail({
     from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
     to: payload.applicantEmail,
     subject,
-    html
+    html,
+    attachments: attachments.length ? attachments : undefined
   });
 
   return {
@@ -675,13 +793,27 @@ async function sendPasswordResetEmail(payload: {
   resetUrl: string;
 }) {
   const subject = "Reset your WMSU HRMO password";
-  const html = `
-    <p>Good day, ${payload.name}.</p>
-    <p>We received a request to reset your password for the WMSU HRMO.</p>
-    <p><a href="${payload.resetUrl}">Click here to reset your password</a></p>
-    <p>If you did not request this, you can ignore this email.</p>
-    <p><em>This is an auto-generated email. Please do not reply.</em></p>
-  `;
+  const html = buildWmsuEmailShell({
+    title: "Password Reset Request",
+    subtitle: `Good day, ${payload.name}. We received a request to reset the password for your WMSU HRMO account.`,
+    badgeText: "Security Notice",
+    summaryRows: [
+      { label: "Recipient", value: payload.name },
+      { label: "Email", value: payload.email },
+    ],
+    contentHtml: `
+      <p style="margin: 0 0 14px; line-height: 1.75; color: #374151;">Click the button below to continue resetting your password.</p>
+      <div style="text-align: center; margin: 18px 0 20px;">
+        <a href="${escapeHtml(payload.resetUrl)}" style="display: inline-block; background: linear-gradient(135deg, #7f1d1d, #b91c1c); color: #ffffff; text-decoration: none; font-weight: 700; font-size: 14px; padding: 12px 22px; border-radius: 999px; box-shadow: 0 10px 24px rgba(127, 29, 29, 0.22);">Reset Password</a>
+      </div>
+      <p style="margin: 0; line-height: 1.7; color: #6b7280; font-size: 13px;">If the button does not work, copy and paste this link into your browser:</p>
+      <p style="margin: 8px 0 0; word-break: break-all; line-height: 1.6; color: #1d4ed8; font-size: 13px;">${escapeHtml(payload.resetUrl)}</p>
+      <div style="margin-top: 18px; padding: 14px 16px; background: #fff; border: 1px solid #f3d7ab; border-radius: 14px;">
+        <p style="margin: 0; color: #374151; line-height: 1.6;">If you did not request this, you can safely ignore this email.</p>
+      </div>
+    `,
+    footerNote: "This password reset link was generated by the WMSU HRMO system. If you did not request it, no action is needed."
+  });
 
   if (!EMAIL_ENABLED) {
     console.log(`[Email disabled] Password reset for: ${payload.email} | ${payload.resetUrl}`);
@@ -706,11 +838,18 @@ async function sendPasswordResetEmail(payload: {
     }
   });
 
+  const logoLocalPath2 = path.resolve(__dirname, "../../frontend/public/wmsu-seal.png");
+  const attachments2: Array<any> = [];
+  if (fs.existsSync(logoLocalPath2)) {
+    attachments2.push({ filename: "wmsu-seal.png", path: logoLocalPath2, cid: "wmsu_seal" });
+  }
+
   const info = await transporter.sendMail({
     from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
     to: payload.email,
     subject,
-    html
+    html,
+    attachments: attachments2.length ? attachments2 : undefined
   });
 
   return {
@@ -2633,6 +2772,200 @@ app.get("/api/reports/summary", asyncHandler(async (_req, res) => {
   });
 }));
 
+// ============ VACANCY ARCHIVAL SYSTEM ============
+
+async function archiveExpiredVacancies() {
+  try {
+    // Get current archive duration setting
+    const archiveDurationDays = await getArchiveDuration();
+
+    // Find all open/closed vacancies where closing_date has passed
+    const today = new Date().toISOString().split('T')[0];
+    const result = await query<{ id: string; position_title: string; department_id: string; salary_grade: number; description: string; qualifications: string; posting_date: string; closing_date: string }>(
+      `SELECT id, position_title, department_id, salary_grade, description, qualifications, posting_date, closing_date 
+       FROM job_vacancies 
+       WHERE archived_at IS NULL AND closing_date < $1 AND status IN ('Open', 'Closed')`,
+      [today]
+    );
+
+    for (const vacancy of result.rows) {
+      const archiveId = randomUUID();
+      await query(
+        `INSERT INTO archived_vacancies 
+         (id, original_job_id, position_title, department_id, salary_grade, description, qualifications, posting_date, closing_date, archived_at, archive_duration_days, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          archiveId,
+          vacancy.id,
+          vacancy.position_title,
+          vacancy.department_id,
+          vacancy.salary_grade,
+          vacancy.description,
+          vacancy.qualifications,
+          vacancy.posting_date,
+          vacancy.closing_date,
+          new Date().toISOString(),
+          archiveDurationDays,
+          new Date().toISOString()
+        ]
+      );
+
+      // Mark original vacancy as archived
+      await query(
+        `UPDATE job_vacancies SET archived_at = $1 WHERE id = $2`,
+        [new Date().toISOString(), vacancy.id]
+      );
+    }
+
+    if (result.rowCount && result.rowCount > 0) {
+      console.log(`✓ Archived ${result.rowCount} expired vacancy(ies) with ${archiveDurationDays} day retention`);
+    }
+  } catch (error) {
+    console.error("❌ Error archiving expired vacancies:", error);
+  }
+}
+
+async function cleanupOldArchivedVacancies() {
+  try {
+    // Find archived vacancies where duration has expired and delete them
+    const result = await query<{ id: string }>(
+      `SELECT id FROM archived_vacancies 
+       WHERE deleted_at IS NULL 
+       AND datetime('now', '+' || archive_duration_days || ' days') <= datetime(created_at)`,
+      []
+    );
+
+    // For PostgreSQL, use a different approach
+    const deleteResult = await query(
+      `UPDATE archived_vacancies 
+       SET deleted_at = $1 
+       WHERE deleted_at IS NULL 
+       AND (CURRENT_TIMESTAMP - INTERVAL '1 day' * archive_duration_days) >= created_at::timestamp`,
+      [new Date().toISOString()]
+    );
+
+    if (deleteResult.rowCount && deleteResult.rowCount > 0) {
+      console.log(`✓ Marked ${deleteResult.rowCount} archived vacancy(ies) for permanent deletion`);
+    }
+  } catch (error) {
+    console.error("❌ Error cleaning up archived vacancies:", error);
+  }
+}
+
+// ============ VACANCY ARCHIVAL API ENDPOINTS ============
+
+app.get("/api/archived-vacancies", asyncHandler(async (_req, res) => {
+  const result = await query(
+    `SELECT id, original_job_id, position_title, department_id, salary_grade, description, qualifications, 
+            posting_date, closing_date, archived_at, archive_duration_days, deleted_at, created_at
+     FROM archived_vacancies 
+     WHERE deleted_at IS NULL
+     ORDER BY archived_at DESC`
+  );
+
+  const rows = result.rows as any[];
+  res.json(rows.map((row) => ({
+    id: row.id,
+    originalJobId: row.original_job_id,
+    positionTitle: row.position_title,
+    departmentId: row.department_id,
+    salaryGrade: row.salary_grade,
+    description: row.description,
+    qualifications: row.qualifications,
+    postingDate: row.posting_date,
+    closingDate: row.closing_date,
+    archivedAt: row.archived_at,
+    archiveDurationDays: row.archive_duration_days,
+    createdAt: row.created_at,
+    daysUntilDeletion: Math.max(0, Math.ceil((new Date(row.created_at).getTime() + row.archive_duration_days * 24 * 60 * 60 * 1000 - new Date().getTime()) / (24 * 60 * 60 * 1000)))
+  })));
+}));
+
+app.post("/api/archived-vacancies/:id/restore", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
+  const archived = await fetchOne(
+    `SELECT id, original_job_id FROM archived_vacancies WHERE id = $1 AND deleted_at IS NULL`,
+    [req.params.id]
+  );
+
+  if (!archived) {
+    res.status(404).json({ error: "Archived vacancy not found" });
+    return;
+  }
+
+  // Restore the original job vacancy
+  await query(
+    `UPDATE job_vacancies SET archived_at = NULL WHERE id = $1`,
+    [archived.original_job_id]
+  );
+
+  // Mark archived record as restored
+  await query(
+    `UPDATE archived_vacancies SET deleted_at = $1 WHERE id = $2`,
+    [new Date().toISOString(), req.params.id]
+  );
+
+  res.json({ success: true, message: "Vacancy restored" });
+}));
+
+app.get("/api/archived-vacancies/:id", asyncHandler(async (req, res) => {
+  const result = await query(
+    `SELECT * FROM archived_vacancies WHERE id = $1 AND deleted_at IS NULL`,
+    [req.params.id]
+  );
+
+  if (result.rowCount === 0) {
+    res.status(404).json({ error: "Archived vacancy not found" });
+    return;
+  }
+
+  const row = result.rows[0] as any;
+  res.json({
+    id: row.id,
+    originalJobId: row.original_job_id,
+    positionTitle: row.position_title,
+    departmentId: row.department_id,
+    salaryGrade: row.salary_grade,
+    description: row.description,
+    qualifications: row.qualifications,
+    postingDate: row.posting_date,
+    closingDate: row.closing_date,
+    archivedAt: row.archived_at,
+    archiveDurationDays: row.archive_duration_days,
+    createdAt: row.created_at
+  });
+}));
+
+// ============ SETTINGS API ENDPOINTS ============
+
+app.get("/api/settings/archive-duration", asyncHandler(async (_req, res) => {
+  const duration = await getArchiveDuration();
+  res.json({ days: duration });
+}));
+
+app.post("/api/settings/archive-duration", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
+  // Check if user is admin
+  const user = await fetchOne("SELECT role FROM users WHERE id = $1", [req.user?.id]);
+  if (!user || user.role !== "Admin") {
+    res.status(403).json({ error: "Only admins can update settings" });
+    return;
+  }
+
+  const { days } = req.body;
+  
+  // Validate input
+  if (!Number.isInteger(days) || days < 1 || days > 180) {
+    res.status(400).json({ error: "Archive duration must be between 1 and 180 days" });
+    return;
+  }
+
+  try {
+    await setArchiveDuration(days, req.user?.id);
+    res.json({ success: true, message: "Archive duration updated", days });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update archive duration" });
+  }
+}));
+
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error(err);
   res.status(500).json({ error: "Server error" });
@@ -2644,6 +2977,20 @@ async function start() {
   await ensureDepartments();
   await ensureTestAccounts();
   await ensureEmailTemplates();
+  
+  // Run archival jobs
+  await archiveExpiredVacancies();
+  await cleanupOldArchivedVacancies();
+  
+  // Schedule archival jobs to run daily at midnight
+  setInterval(async () => {
+    await archiveExpiredVacancies();
+  }, 24 * 60 * 60 * 1000); // Run daily
+  
+  setInterval(async () => {
+    await cleanupOldArchivedVacancies();
+  }, 24 * 60 * 60 * 1000); // Run daily
+  
   app.listen(PORT, () => {
     console.log(`API listening on http://localhost:${PORT}`);
   });

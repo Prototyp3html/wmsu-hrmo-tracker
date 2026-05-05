@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu,
@@ -22,6 +22,8 @@ export default function Evaluations() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showEdit, setShowEdit] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [editingEvaluationId, setEditingEvaluationId] = useState<string | null>(null);
   const [selectedAppId, setSelectedAppId] = useState<string>("");
   const [positionFilter, setPositionFilter] = useState("all");
@@ -520,6 +522,26 @@ export default function Evaluations() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Evaluation</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this evaluation? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 justify-end">
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => {
+              if (deleteTarget) {
+                deleteMutation.mutate(deleteTarget);
+                setShowDeleteConfirm(false);
+              }
+            }}>Delete</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardContent className="pt-4 pb-4">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -603,9 +625,8 @@ export default function Evaluations() {
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
                             onClick={() => {
-                              if (window.confirm("Delete this evaluation?")) {
-                                deleteMutation.mutate(ev.id);
-                              }
+                              setDeleteTarget(ev.id);
+                              setShowDeleteConfirm(true);
                             }}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />

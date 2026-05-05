@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -71,6 +71,8 @@ export default function ApplicationTracking() {
     qualificationTemplateText: string;
   } | null>(null);
   const [suggestedApp, setSuggestedApp] = useState<Application | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ applicantId: string; applicantName: string } | null>(null);
 
   const { data: applications = [] } = useQuery({
     queryKey: ["applications"],
@@ -268,9 +270,8 @@ export default function ApplicationTracking() {
                           className="text-destructive focus:text-destructive"
                           onClick={() => {
                             const applicantName = getApplicantName(app.applicantId);
-                            if (window.confirm(`Delete ${applicantName}? This also removes their application records.`)) {
-                              deleteApplicantMutation.mutate(app.applicantId);
-                            }
+                            setDeleteTarget({ applicantId: app.applicantId, applicantName });
+                            setShowDeleteConfirm(true);
                           }}
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
@@ -643,6 +644,27 @@ export default function ApplicationTracking() {
                             </div>
                           </div>
                         )}
+                      </DialogContent>
+                    </Dialog>
+
+                    {/* Delete Confirmation Dialog */}
+                    <Dialog open={showDeleteConfirm && deleteTarget?.applicantId === app.applicantId} onOpenChange={setShowDeleteConfirm}>
+                      <DialogContent className="max-w-sm">
+                        <DialogHeader>
+                          <DialogTitle>Delete Applicant</DialogTitle>
+                          <p className="text-sm text-muted-foreground mt-2">
+                            Are you sure you want to delete <span className="font-semibold text-foreground">{deleteTarget?.applicantName}</span>? This also removes their application records. This action cannot be undone.
+                          </p>
+                        </DialogHeader>
+                        <div className="flex gap-3 justify-end">
+                          <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+                          <Button variant="destructive" disabled={deleteApplicantMutation.isPending} onClick={() => {
+                            if (deleteTarget) {
+                              deleteApplicantMutation.mutate(deleteTarget.applicantId);
+                              setShowDeleteConfirm(false);
+                            }
+                          }}>Delete</Button>
+                        </div>
                       </DialogContent>
                     </Dialog>
                       </div>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { fetchApplicants, fetchApplications, fetchEmailTemplates, fetchJobs, updateEmailTemplate } from "@/lib/api";
+import { fetchApplicants, fetchApplications, fetchEmailTemplates, fetchJobs, updateEmailTemplate, fetchArchivedVacancies, restoreArchivedVacancy, getArchiveDurationSetting, updateArchiveDurationSetting } from "@/lib/api";
 import type { EmailTemplate } from "@/lib/types";
 import { Search, Pencil } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -64,6 +64,8 @@ export default function Archive() {
     subject: "",
     body: ""
   });
+  const [showDurationEditor, setShowDurationEditor] = useState(false);
+  const [newDuration, setNewDuration] = useState(30);
 
   const { data: applicants = [], isLoading: loadingApplicants } = useQuery({
     queryKey: ["applicants"],
@@ -84,6 +86,48 @@ export default function Archive() {
     queryKey: ["email-templates"],
     queryFn: fetchEmailTemplates
   });
+
+  const { data: archivedVacancies = [], isLoading: loadingArchivedVacancies } = useQuery({
+    queryKey: ["archived-vacancies"],
+    queryFn: fetchArchivedVacancies
+  });
+
+  const { data: archiveDurationData, isLoading: loadingDuration } = useQuery({
+    queryKey: ["archive-duration"],
+    queryFn: getArchiveDurationSetting
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (vacancyId: string) => restoreArchivedVacancy(vacancyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["archived-vacancies"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      toast({ title: "Vacancy restored", description: "The vacancy has been restored to active listings." });
+    },
+    onError: (error) => {
+      toast({ title: "Restore failed", description: (error as Error).message, variant: "destructive" });
+    }
+  });
+
+  const updateDurationMutation = useMutation({
+    mutationFn: (days: number) => updateArchiveDurationSetting(days),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["archive-duration"] });
+      queryClient.invalidateQueries({ queryKey: ["archived-vacancies"] });
+      setShowDurationEditor(false);
+      toast({ title: "Duration updated", description: `Archive retention period set to ${data.days} days.` });
+    },
+    onError: (error) => {
+      toast({ title: "Update failed", description: (error as Error).message, variant: "destructive" });
+    }
+  });
+
+  // Sync newDuration with fetched data
+  useEffect(() => {
+    if (archiveDurationData?.days) {
+      setNewDuration(archiveDurationData.days);
+    }
+  }, [archiveDurationData]);
 
   const saveTemplateMutation = useMutation({
     mutationFn: ({ templateKey, payload }: { templateKey: EmailTemplate["templateKey"]; payload: Omit<EmailTemplate, "templateKey" | "updatedAt"> }) =>
@@ -388,6 +432,117 @@ export default function Archive() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Card>
+        <CardContent className="pt-5">
+          <div className="mb-4">
+            <div className="flex items-center justify-between gap-4 mb-2">
+              <h2 className="text-lg font-semibold text-foreground">Archived Vacancies</h2>
+              {user?.role === "Admin" && (
+                <div className="flex items-center gap-2">
+                  {!showDurationEditor ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowDurationEditor(true)}
+                    >
+                      Set Retention Period
+                    </Button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        max="180"
+                        value={newDuration}
+                        onChange={(e) => setNewDuration(parseInt(e.target.value) || 30)}
+                        className="w-20"
+                        placeholder="Days"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (newDuration >= 1 && newDuration <= 180) {
+                            updateDurationMutation.mutate(newDuration);
+                          } else {
+                            toast({
+                              title: "Invalid duration",
+                              description: "Duration must be between 1 and 180 days.",
+                              variant: "destructive"
+                            });
+                          }
+                        }}
+                        disabled={updateDurationMutation.isPending}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowDurationEditor(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">Vacancies that have passed their closing date. They will be permanently deleted after {archiveDurationData?.days || 30} days.</p>
+          </div>
+
+          {loadingArchivedVacancies ? (
+            <p className="text-sm text-muted-foreground">Loading archived vacancies...</p>
+          ) : archivedVacancies.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No archived vacancies at this time.</p>
+          ) : (
+            <div className="space-y-3">
+              {archivedVacancies.map((vacancy) => (
+                <div
+                  key={vacancy.id}
+                  className="rounded-lg border border-border/50 bg-background/50 p-4 space-y-3"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-foreground truncate">{vacancy.positionTitle}</h3>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                        <span>SG-{vacancy.salaryGrade}</span>
+                        <span>•</span>
+                        <span>Closed: {new Date(vacancy.closingDate).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => restoreMutation.mutate(vacancy.id)}
+                      disabled={restoreMutation.isPending}
+                    >
+                      Restore
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                    <div className="rounded bg-muted/50 p-2">
+                      <p className="text-muted-foreground">Archived</p>
+                      <p className="font-medium text-foreground">{new Date(vacancy.archivedAt).toLocaleDateString()}</p>
+                    </div>
+                    <div className="rounded bg-muted/50 p-2">
+                      <p className="text-muted-foreground">Days Until Delete</p>
+                      <p className={`font-medium ${vacancy.daysUntilDeletion <= 7 ? "text-destructive" : "text-foreground"}`}>
+                        {vacancy.daysUntilDeletion} days
+                      </p>
+                    </div>
+                    <div className="rounded bg-muted/50 p-2">
+                      <p className="text-muted-foreground">Posted</p>
+                      <p className="font-medium text-foreground">{new Date(vacancy.postingDate).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

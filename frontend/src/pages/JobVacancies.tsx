@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -80,6 +80,8 @@ export default function JobVacancies() {
   const [createCustomDepartment, setCreateCustomDepartment] = useState("");
   const [editCustomDepartment, setEditCustomDepartment] = useState("");
   const [showManageDepartments, setShowManageDepartments] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "title" | "department" | "vacancy"; id: string; name: string } | null>(null);
   const [customPositionTitles, setCustomPositionTitles] = useState<string[]>([]);
   const [formState, setFormState] = useState({
     positionTitle: "",
@@ -349,6 +351,36 @@ export default function JobVacancies() {
       toast({ title: "Delete failed", description: (error as Error).message, variant: "destructive" });
     }
   });
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+
+    try {
+      if (deleteTarget.type === "title") {
+        const result = await deleteJobsByTitle(deleteTarget.name);
+        setCustomPositionTitles((prev) => prev.filter((item) => item.toLowerCase() !== deleteTarget.name.toLowerCase()));
+        queryClient.invalidateQueries({ queryKey: ["position-titles"] });
+        queryClient.invalidateQueries({ queryKey: ["position-titles-custom"] });
+        queryClient.invalidateQueries({ queryKey: ["jobs"] });
+        refetchCustomTitles();
+        toast({ title: "Deleted", description: `${deleteTarget.name} removed (${result.deleted} vacancy record(s)).` });
+      } else if (deleteTarget.type === "department") {
+        const result = await deleteDepartment(deleteTarget.id);
+        queryClient.invalidateQueries({ queryKey: ["departments"] });
+        queryClient.invalidateQueries({ queryKey: ["jobs"] });
+        toast({ title: "Deleted", description: `${deleteTarget.name} removed.` });
+        if ((result.deleted ?? 0) > 0) {
+          toast({ title: "Vacancies removed", description: `${result.deleted} unused vacancy(ies) removed.` });
+        }
+      } else if (deleteTarget.type === "vacancy") {
+        deleteMutation.mutate(deleteTarget.id);
+      }
+      setShowDeleteConfirm(false);
+      setDeleteTarget(null);
+    } catch (err) {
+      toast({ title: "Delete failed", description: (err as Error).message, variant: "destructive" });
+    }
+  };
 
   const getDepartmentName = (id: string) =>
     departments.find((d) => d.id === id)?.name ?? "Unknown";
@@ -637,18 +669,8 @@ export default function JobVacancies() {
                         variant="destructive"
                         size="sm"
                         onClick={async () => {
-                          if (!window.confirm(`Delete "${title}" and all saved references to it?`)) return;
-                          try {
-                            const result = await deleteJobsByTitle(title);
-                            setCustomPositionTitles((prev) => prev.filter((item) => item.toLowerCase() !== title.toLowerCase()));
-                            queryClient.invalidateQueries({ queryKey: ["position-titles"] });
-                            queryClient.invalidateQueries({ queryKey: ["position-titles-custom"] });
-                            queryClient.invalidateQueries({ queryKey: ["jobs"] });
-                            refetchCustomTitles();
-                            toast({ title: "Deleted", description: `${title} removed (${result.deleted} vacancy record(s)).` });
-                          } catch (err) {
-                            toast({ title: "Delete failed", description: (err as Error).message, variant: "destructive" });
-                          }
+                          setDeleteTarget({ type: "title", id: title, name: title });
+                          setShowDeleteConfirm(true);
                         }}
                       >
                         Delete
@@ -688,18 +710,8 @@ export default function JobVacancies() {
                         variant="destructive"
                         size="sm"
                         onClick={async () => {
-                          if (!window.confirm(`Delete "${department.name}" and all unused vacancies in this department?`)) return;
-                          try {
-                            const result = await deleteDepartment(department.id);
-                            queryClient.invalidateQueries({ queryKey: ["departments"] });
-                            queryClient.invalidateQueries({ queryKey: ["jobs"] });
-                            toast({ title: "Deleted", description: `${department.name} removed.` });
-                            if ((result.deleted ?? 0) > 0) {
-                              toast({ title: "Vacancies removed", description: `${result.deleted} unused vacancy(ies) removed.` });
-                            }
-                          } catch (err) {
-                            toast({ title: "Delete failed", description: (err as Error).message, variant: "destructive" });
-                          }
+                          setDeleteTarget({ type: "department", id: department.id, name: department.name });
+                          setShowDeleteConfirm(true);
                         }}
                       >
                         Delete
@@ -1037,9 +1049,8 @@ export default function JobVacancies() {
                               <DropdownMenuItem
                                 className="text-destructive focus:text-destructive"
                                 onClick={() => {
-                                  if (window.confirm(`Delete ${vacancy.positionTitle}?`)) {
-                                    deleteMutation.mutate(vacancy.id);
-                                  }
+                                  setDeleteTarget({ type: "vacancy", id: vacancy.id, name: vacancy.positionTitle });
+                                  setShowDeleteConfirm(true);
                                 }}
                               >
                                 <Trash2 className="w-4 h-4 mr-2" />
@@ -1080,6 +1091,27 @@ export default function JobVacancies() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {deleteTarget?.type === "title" && "Delete Position Title"}
+              {deleteTarget?.type === "department" && "Delete Department"}
+              {deleteTarget?.type === "vacancy" && "Delete Vacancy"}
+            </DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.type === "title" && `Are you sure you want to delete "${deleteTarget.name}" and all saved references to it? This action cannot be undone.`}
+              {deleteTarget?.type === "department" && `Are you sure you want to delete "${deleteTarget.name}" and all unused vacancies in this department? This action cannot be undone.`}
+              {deleteTarget?.type === "vacancy" && `Are you sure you want to delete ${deleteTarget?.name}? This action cannot be undone.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 justify-end">
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={deleteMutation.isPending} onClick={handleDeleteConfirm}>Delete</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

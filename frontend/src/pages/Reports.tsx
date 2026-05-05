@@ -156,39 +156,164 @@ export default function Reports() {
   };
 
   const handleExportPdf = async () => {
-    const element = document.getElementById("report-content");
-    if (!element) {
-      toast({ title: "Export failed", description: "Report content not found.", variant: "destructive" });
-      return;
-    }
-
     setIsExporting(true);
     try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf")
-      ]);
-
-      const canvas = await html2canvas(element, { scale: 2, useCORS: true });
-      const imageData = canvas.toDataURL("image/png");
+      const { jsPDF } = await import("jspdf");
       const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const margin = 36;
+      const contentWidth = pageWidth - margin * 2;
+      let cursorY = margin;
 
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imageData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
+      const ensureSpace = (requiredHeight: number) => {
+        if (cursorY + requiredHeight <= pageHeight - margin) return;
         pdf.addPage();
-        pdf.addImage(imageData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+        cursorY = margin;
+      };
+
+      const drawTitleBlock = (title: string, subtitle?: string) => {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(18);
+        pdf.text(title, pageWidth / 2, cursorY + 10, { align: "center" });
+        cursorY += 18;
+        if (subtitle) {
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(9.5);
+          pdf.text(subtitle, pageWidth / 2, cursorY + 10, { align: "center" });
+          cursorY += 14;
+        }
+        pdf.setDrawColor(140);
+        pdf.setLineWidth(0.8);
+        pdf.line(margin, cursorY + 6, pageWidth - margin, cursorY + 6);
+        cursorY += 16;
+      };
+
+      const drawSectionHeader = (title: string) => {
+        ensureSpace(22);
+        pdf.setFillColor(237, 237, 237);
+        pdf.rect(margin, cursorY, contentWidth, 18, "F");
+        pdf.setDrawColor(120);
+        pdf.rect(margin, cursorY, contentWidth, 18);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(10);
+        pdf.text(title, margin + 6, cursorY + 12);
+        cursorY += 22;
+      };
+
+      const drawTable = (headers: string[], rows: string[][], columnWidths: number[]) => {
+        const normalizedWidths = (() => {
+          const totalWidth = columnWidths.reduce((sum, width) => sum + width, 0) || 1;
+          const scaled = columnWidths.map((width) => (width / totalWidth) * contentWidth);
+          const rounded = scaled.map((width) => Math.floor(width));
+          rounded[rounded.length - 1] = contentWidth - rounded.slice(0, -1).reduce((sum, width) => sum + width, 0);
+          return rounded;
+        })();
+        const rowPadding = 6;
+        const lineHeight = 11;
+
+        const drawRow = (values: string[], isHeader = false) => {
+          const cellLines = values.map((value, index) => pdf.splitTextToSize(value, normalizedWidths[index] - rowPadding * 2) as string[]);
+          const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * lineHeight + 8;
+          ensureSpace(rowHeight + 2);
+
+          let startX = margin;
+          values.forEach((value, index) => {
+            const width = normalizedWidths[index];
+            if (isHeader) {
+              pdf.setFillColor(192, 23, 47);
+              pdf.rect(startX, cursorY, width, rowHeight, "F");
+            }
+            pdf.setDrawColor(120);
+            pdf.rect(startX, cursorY, width, rowHeight);
+            pdf.setFont("helvetica", isHeader ? "bold" : "normal");
+            pdf.setTextColor(isHeader ? 255 : 40);
+            pdf.setFontSize(isHeader ? 8.5 : 9);
+            const lines = cellLines[index];
+            lines.forEach((line, lineIndex) => {
+              pdf.text(line, startX + rowPadding, cursorY + 12 + lineIndex * lineHeight);
+            });
+            startX += width;
+          });
+
+          pdf.setTextColor(0);
+          cursorY += rowHeight;
+        };
+
+        drawRow(headers, true);
+        if (rows.length === 0) {
+          drawRow(["No records", ...headers.slice(1).map(() => "")]);
+          return;
+        }
+        rows.forEach((row) => drawRow(row));
+      };
+
+      const reportTitleMap: Record<ReportType, string> = {
+        "per-position": "Applicants Summary per Position",
+        hired: "Hired Applicants",
+        rejected: "Rejected Applicants",
+        status: "Applications by Status",
+        summary: "Hiring Summary per Month"
+      };
+
+      const generatedAt = new Date().toLocaleString();
+
+      drawTitleBlock(
+        "WMSU HRMO Tracker Report",
+        reportTitleMap[reportType]
+      );
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.text(`Generated: ${generatedAt}`, pageWidth / 2, cursorY + 4, { align: "center" });
+      cursorY += 16;
+
+      if (reportType === "per-position") {
+        drawSectionHeader("Applicants Summary per Position");
+        drawTable(
+          ["Position Title", "Applications", "Hired", "Rejected", "In Review"],
+          positionGroups.map(({ vacancy, apps }) => {
+            const hiredCount = apps.filter((a) => a.status === "Hired").length;
+            const rejectedCount = apps.filter((a) => a.status === "Rejected").length;
+            const inReviewCount = apps.filter((a) => a.status !== "Hired" && a.status !== "Rejected").length;
+            return [vacancy.positionTitle, String(apps.length), String(hiredCount), String(rejectedCount), String(inReviewCount)];
+          }),
+          [180, 72, 64, 72, 74]
+        );
+      } else if (reportType === "hired") {
+        drawSectionHeader("Hired Applicants");
+        drawTable(
+          ["Applicant", "Position", "Salary Grade", "Position Level", "Date Applied"],
+          hiredFiltered.map((app) => [
+            getApplicantName(app.applicantId),
+            getVacancyTitle(app.vacancyId),
+            String(getVacancySalaryGrade(app.vacancyId) ?? "N/A"),
+            getVacancyPositionLevel(app.vacancyId),
+            app.dateApplied
+          ]),
+          [150, 155, 70, 95, 80]
+        );
+      } else if (reportType === "rejected") {
+        drawSectionHeader("Rejected Applicants");
+        drawTable(
+          ["Applicant", "Position", "Remarks"],
+          rejected.map((app) => [getApplicantName(app.applicantId), getVacancyTitle(app.vacancyId), app.remarks ?? "—"]),
+          [145, 145, 260]
+        );
+      } else if (reportType === "status") {
+        drawSectionHeader("Applications by Status");
+        drawTable(
+          ["Status", "Count", "Percentage"],
+          statusStats.map(({ status, count, percentage }) => [status, String(count), `${percentage}%`]),
+          [255, 90, 105]
+        );
+      } else if (reportType === "summary") {
+        drawSectionHeader("Hiring Summary per Month");
+        drawTable(
+          ["Month", "Applications", "Hired", "Rejected"],
+          monthlySummary.map((row) => [row.month, String(row.applications), String(row.hired), String(row.rejected)]),
+          [220, 90, 90, 90]
+        );
       }
 
       pdf.save(`wmsu-hr-report-${reportType}.pdf`);
@@ -327,7 +452,7 @@ export default function Reports() {
                 <thead>
                   <tr className="border-b border-border/70 bg-primary text-primary-foreground">
                     <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Position Title</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Total Apps</th>
+                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Applications</th>
                     <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Hired</th>
                     <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Rejected</th>
                     <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">In Review</th>
@@ -593,7 +718,7 @@ export default function Reports() {
                 <thead>
                   <tr className="border-b border-border/70 bg-primary text-primary-foreground">
                     <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Month</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Apps</th>
+                      <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Applications</th>
                     <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Hired</th>
                     <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Rejected</th>
                   </tr>
@@ -640,7 +765,7 @@ export default function Reports() {
                   <thead>
                     <tr className="border-b">
                       <th className="pb-2 text-left text-muted-foreground">Position Title</th>
-                      <th className="pb-2 text-center text-muted-foreground">Total Apps</th>
+                      <th className="pb-2 text-center text-muted-foreground">Applications</th>
                       <th className="pb-2 text-center text-muted-foreground">Hired</th>
                       <th className="pb-2 text-center text-muted-foreground">Rejected</th>
                       <th className="pb-2 text-center text-muted-foreground">In Review</th>
@@ -754,7 +879,7 @@ export default function Reports() {
                   <thead>
                     <tr className="border-b">
                       <th className="pb-2 text-left text-muted-foreground">Month</th>
-                      <th className="pb-2 text-center text-muted-foreground">Apps</th>
+                      <th className="pb-2 text-center text-muted-foreground">Applications</th>
                       <th className="pb-2 text-center text-muted-foreground">Hired</th>
                       <th className="pb-2 text-center text-muted-foreground">Rejected</th>
                     </tr>
