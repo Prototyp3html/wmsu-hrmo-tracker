@@ -179,6 +179,12 @@ async function fetchOne<T extends QueryResultRow>(sql: string, params: unknown[]
 }
 
 function mapJob(row: any) {
+  // Auto-close vacancies if closing date has passed
+  const closingDate = new Date(row.closing_date);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Normalize to start of day for comparison
+  const effectiveStatus = closingDate < today && row.status === "Open" ? "Closed" : row.status;
+
   return {
     id: row.id,
     positionTitle: row.position_title,
@@ -195,7 +201,7 @@ function mapJob(row: any) {
     qualifications: row.qualifications ?? row.description ?? "",
     postingDate: row.posting_date,
     closingDate: row.closing_date,
-    status: row.status,
+    status: effectiveStatus,
     positionLevel: row.position_level ?? "first_level"
   };
 }
@@ -2196,6 +2202,23 @@ app.post("/api/applications", requireAuth, asyncHandler(async (req: AuthedReques
   const { applicantId, vacancyId, status, dateApplied, remarks } = req.body as any;
   if (!applicantId || !vacancyId || !status || !dateApplied) {
     res.status(400).json({ error: "Missing required fields" });
+    return;
+  }
+
+  // Validate that the vacancy exists and is still open
+  const vacancyResult = await query("SELECT * FROM job_vacancies WHERE id = $1", [vacancyId]);
+  if (vacancyResult.rowCount === 0) {
+    res.status(404).json({ error: "Job vacancy not found" });
+    return;
+  }
+
+  const vacancy = vacancyResult.rows[0];
+  const closingDate = new Date(vacancy.closing_date);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (closingDate < today || vacancy.status === "Closed") {
+    res.status(400).json({ error: "This job vacancy is no longer accepting applications (closing date has passed)" });
     return;
   }
 
