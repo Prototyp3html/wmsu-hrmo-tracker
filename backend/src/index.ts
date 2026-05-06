@@ -2827,15 +2827,7 @@ async function archiveExpiredVacancies() {
 
 async function cleanupOldArchivedVacancies() {
   try {
-    // Find archived vacancies where duration has expired and delete them
-    const result = await query<{ id: string }>(
-      `SELECT id FROM archived_vacancies 
-       WHERE deleted_at IS NULL 
-       AND datetime('now', '+' || archive_duration_days || ' days') <= datetime(created_at)`,
-      []
-    );
-
-    // For PostgreSQL, use a different approach
+    // Mark archived vacancies as deleted when their retention period expires
     const deleteResult = await query(
       `UPDATE archived_vacancies 
        SET deleted_at = $1 
@@ -2943,9 +2935,8 @@ app.get("/api/settings/archive-duration", asyncHandler(async (_req, res) => {
 }));
 
 app.post("/api/settings/archive-duration", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
-  // Check if user is admin
-  const user = await fetchOne("SELECT role FROM users WHERE id = $1", [req.user?.id]);
-  if (!user || user.role !== "Admin") {
+  // Check if user is admin (already authenticated by requireAuth middleware)
+  if (req.user?.role !== "admin") {
     res.status(403).json({ error: "Only admins can update settings" });
     return;
   }

@@ -438,7 +438,7 @@ export default function Archive() {
           <div className="mb-4">
             <div className="flex items-center justify-between gap-4 mb-2">
               <h2 className="text-lg font-semibold text-foreground">Archived Vacancies</h2>
-              {user?.role === "Admin" && (
+              {user?.role === "admin" && (
                 <div className="flex items-center gap-2">
                   {!showDurationEditor ? (
                     <Button
