@@ -254,18 +254,11 @@ export default function ApplicationTracking() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem onClick={() => navigate(`/applicants?view=${encodeURIComponent(app.applicantId)}`)}>
-                          <Eye className="w-4 h-4 mr-2" />
-                          View Applicant
-                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => navigate(`/applicants?edit=${encodeURIComponent(app.applicantId)}`)}>
                           <Pencil className="w-4 h-4 mr-2" />
                           Edit Applicant
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => navigate(`/applicants?apply=${encodeURIComponent(app.applicantId)}`)}>
-                          <Plus className="w-4 h-4 mr-2" />
-                          Apply
-                        </DropdownMenuItem>
+                        
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onClick={() => {
