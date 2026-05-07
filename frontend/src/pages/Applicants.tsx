@@ -1188,111 +1188,175 @@ export default function Applicants() {
 
       if (format === "pdf") {
         const { jsPDF } = await import("jspdf");
-        const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-        const margin = 28;
+        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
         const pageWidth = pdf.internal.pageSize.getWidth();
         const pageHeight = pdf.internal.pageSize.getHeight();
+        const margin = 10;
         const contentWidth = pageWidth - margin * 2;
-        let cursorY = margin + 54;
+        let cursorY = margin;
 
-        const drawPageBorder = () => {
-          pdf.setLineWidth(0.8);
-          pdf.rect(margin - 8, margin - 8, contentWidth + 16, pageHeight - margin * 2 + 16);
+        // Helper: Draw text with proper line breaking
+        const drawText = (text: string, x: number, y: number, options: any = {}) => {
+          const { fontSize = 10, bold = false, maxWidth = contentWidth, align = "left" } = options;
+          pdf.setFontSize(fontSize);
+          pdf.setFont("helvetica", bold ? "bold" : "normal");
+          pdf.text(text, x, y, { maxWidth, align });
         };
 
-        const addPage = () => {
-          pdf.addPage();
-          drawPageBorder();
-          cursorY = margin;
-        };
-
-        const ensureSpace = (requiredHeight: number) => {
-          if (cursorY + requiredHeight <= pageHeight - margin) return;
-          addPage();
-        };
-
-        const drawSectionHeader = (title: string) => {
-          ensureSpace(26);
-          pdf.setFillColor(235, 235, 235);
-          pdf.rect(margin, cursorY, contentWidth, 20, "F");
-          pdf.setLineWidth(0.6);
-          pdf.rect(margin, cursorY, contentWidth, 20);
-          pdf.setFont("helvetica", "bold");
-          pdf.setFontSize(10.5);
-          pdf.text(title, margin + 6, cursorY + 14);
-          cursorY += 20;
-        };
-
-        const drawKeyValueRows = (rows: Array<[string, string]>) => {
-          const labelWidth = 170;
-          rows.forEach(([label, value]) => {
-            const labelLines = pdf.splitTextToSize(label, labelWidth - 10) as string[];
-            const valueLines = pdf.splitTextToSize(value, contentWidth - labelWidth - 10) as string[];
-            const rowHeight = Math.max(labelLines.length, valueLines.length) * 11 + 6;
-            ensureSpace(rowHeight);
-            pdf.setLineWidth(0.4);
-            pdf.rect(margin, cursorY, labelWidth, rowHeight);
-            pdf.rect(margin + labelWidth, cursorY, contentWidth - labelWidth, rowHeight);
-            pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(9);
-            labelLines.forEach((line, index) => {
-              pdf.text(line, margin + 4, cursorY + 12 + index * 11);
-            });
-            pdf.setFont("helvetica", "normal");
-            valueLines.forEach((line, index) => {
-              pdf.text(line, margin + labelWidth + 4, cursorY + 12 + index * 11);
-            });
-            cursorY += rowHeight;
-          });
-        };
-
-        const drawGridTable = (headers: string[], rows: string[][], columnWidths: number[]) => {
-          const drawRow = (values: string[], isHeader: boolean) => {
-            const colTexts = values.map((value, index) => pdf.splitTextToSize(value, columnWidths[index] - 8) as string[]);
-            const rowHeight = Math.max(...colTexts.map((text) => text.length)) * 11 + 6;
-            ensureSpace(rowHeight);
-            let startX = margin;
-            values.forEach((_, index) => {
-              if (isHeader) {
-                pdf.setFillColor(245, 245, 245);
-                pdf.rect(startX, cursorY, columnWidths[index], rowHeight, "F");
-              }
-              pdf.rect(startX, cursorY, columnWidths[index], rowHeight);
-              pdf.setFont("helvetica", isHeader ? "bold" : "normal");
-              pdf.setFontSize(8.5);
-              colTexts[index].forEach((line, lineIndex) => {
-                pdf.text(line, startX + 4, cursorY + 12 + lineIndex * 11);
-              });
-              startX += columnWidths[index];
-            });
-            cursorY += rowHeight;
-          };
-
-          drawRow(headers, true);
-          if (rows.length === 0) {
-            drawRow(["No records", ...headers.slice(1).map(() => "")], false);
-            return;
+        // Helper: Draw a section header with official look
+        const drawSectionHeader = (number: string, title: string) => {
+          if (cursorY + 8 > pageHeight - margin) {
+            pdf.addPage();
+            cursorY = margin;
           }
-          rows.forEach((row) => drawRow(row, false));
+          pdf.setFillColor(45, 85, 145); // Official blue
+          pdf.rect(margin, cursorY, contentWidth, 7, "F");
+          drawText(`${number}. ${title}`, margin + 2, cursorY + 5, { fontSize: 10, bold: true, maxWidth: contentWidth - 2 });
+          pdf.setDrawColor(200, 200, 200);
+          pdf.setLineWidth(0.3);
+          cursorY += 8;
         };
 
-        drawPageBorder();
-        pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(16);
-        pdf.text("PERSONAL DATA SHEET", pageWidth / 2, margin + 12, { align: "center" });
-        pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(9);
-        pdf.text(`Generated: ${new Date().toLocaleString()}`, pageWidth / 2, margin + 28, { align: "center" });
-        pdf.text(`Applicant: ${applicant.fullName || "N/A"}`, pageWidth / 2, margin + 42, { align: "center" });
+        // Helper: Draw a 2-column field row
+        const drawFieldRow = (field1Label: string, field1Value: string, field2Label: string, field2Value: string) => {
+          const colWidth = (contentWidth - 1) / 2;
+          const fieldHeight = 12;
+          
+          if (cursorY + fieldHeight > pageHeight - margin) {
+            pdf.addPage();
+            cursorY = margin;
+          }
 
-        drawSectionHeader("I. PERSONAL INFORMATION");
-        drawKeyValueRows(personalRows);
+          // Column 1
+          pdf.setLineWidth(0.3);
+          pdf.setDrawColor(180, 180, 180);
+          pdf.rect(margin, cursorY, colWidth, fieldHeight);
+          drawText(field1Label, margin + 1, cursorY + 3, { fontSize: 8, bold: true, maxWidth: colWidth - 2 });
+          drawText(field1Value, margin + 1, cursorY + 7.5, { fontSize: 9, maxWidth: colWidth - 2 });
 
-        drawSectionHeader("II. FAMILY BACKGROUND");
-        drawKeyValueRows(familyRows);
+          // Column 2
+          pdf.rect(margin + colWidth + 1, cursorY, colWidth - 1, fieldHeight);
+          drawText(field2Label, margin + colWidth + 2, cursorY + 3, { fontSize: 8, bold: true, maxWidth: colWidth - 3 });
+          drawText(field2Value, margin + colWidth + 2, cursorY + 7.5, { fontSize: 9, maxWidth: colWidth - 3 });
 
-        drawSectionHeader("III. EDUCATIONAL BACKGROUND");
-        drawGridTable(
+          cursorY += fieldHeight;
+        };
+
+        // Helper: Draw full-width field
+        const drawFullWidthField = (label: string, value: string) => {
+          const fieldHeight = 10;
+          
+          if (cursorY + fieldHeight > pageHeight - margin) {
+            pdf.addPage();
+            cursorY = margin;
+          }
+
+          pdf.setLineWidth(0.3);
+          pdf.setDrawColor(180, 180, 180);
+          pdf.rect(margin, cursorY, contentWidth, fieldHeight);
+          drawText(label, margin + 1, cursorY + 3, { fontSize: 8, bold: true, maxWidth: contentWidth - 2 });
+          drawText(value, margin + 1, cursorY + 7, { fontSize: 9, maxWidth: contentWidth - 2 });
+
+          cursorY += fieldHeight;
+        };
+
+        // Helper: Draw table
+        const drawTable = (headers: string[], rows: string[][], columnWidths: number[]) => {
+          if (cursorY + 8 > pageHeight - margin) {
+            pdf.addPage();
+            cursorY = margin;
+          }
+
+          const headerHeight = 7;
+          const rowHeight = 6;
+
+          // Draw headers
+          pdf.setFillColor(220, 220, 220);
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(8);
+          let startX = margin;
+
+          for (let i = 0; i < headers.length; i++) {
+            pdf.setLineWidth(0.3);
+            pdf.setDrawColor(150, 150, 150);
+            pdf.rect(startX, cursorY, columnWidths[i], headerHeight);
+            pdf.text(headers[i], startX + 0.5, cursorY + 5, { maxWidth: columnWidths[i] - 1 });
+            startX += columnWidths[i];
+          }
+          cursorY += headerHeight;
+
+          // Draw rows
+          if (rows.length === 0) {
+            pdf.setFont("helvetica", "normal");
+            pdf.setFontSize(8);
+            pdf.rect(margin, cursorY, contentWidth, rowHeight);
+            pdf.text("No records", margin + 0.5, cursorY + 4);
+            cursorY += rowHeight;
+          } else {
+            rows.forEach((row) => {
+              if (cursorY + rowHeight > pageHeight - margin) {
+                pdf.addPage();
+                cursorY = margin;
+              }
+
+              pdf.setFont("helvetica", "normal");
+              pdf.setFontSize(7.5);
+              startX = margin;
+
+              for (let i = 0; i < row.length; i++) {
+                pdf.setLineWidth(0.3);
+                pdf.setDrawColor(200, 200, 200);
+                pdf.rect(startX, cursorY, columnWidths[i], rowHeight);
+                const text = formatExportValue(row[i]);
+                pdf.text(text, startX + 0.5, cursorY + 4, { maxWidth: columnWidths[i] - 1 });
+                startX += columnWidths[i];
+              }
+              cursorY += rowHeight;
+            });
+          }
+
+          cursorY += 2;
+        };
+
+        // ===== START DOCUMENT =====
+        
+        // Header
+        drawText("PERSONAL DATA SHEET", pageWidth / 2, cursorY + 4, { fontSize: 14, bold: true, align: "center" });
+        cursorY += 10;
+        
+        drawText(`Generated: ${new Date().toLocaleString()}`, pageWidth / 2, cursorY, { fontSize: 8, align: "center" });
+        drawText(`Applicant: ${applicant.fullName || "N/A"}`, pageWidth / 2, cursorY + 3, { fontSize: 8, align: "center" });
+        cursorY += 8;
+
+        // I. PERSONAL INFORMATION
+        drawSectionHeader("I", "PERSONAL INFORMATION");
+        
+        drawFieldRow("Surname/First/Middle", formatExportValue(applicant.fullName), "Date of Birth", formatExportValue(applicant.dateOfBirth));
+        drawFieldRow("Place of Birth", formatExportValue(applicant.placeOfBirth), "Sex", formatExportValue(applicant.sex));
+        drawFieldRow("Civil Status", formatExportValue(applicant.civilStatus), "Citizenship", formatExportValue(applicant.citizenship));
+        drawFieldRow("Height (cm)", formatExportValue(applicant.height), "Weight (kg)", formatExportValue(applicant.weight));
+        drawFieldRow("Blood Type", formatExportValue(applicant.bloodType), "Citizenship Details", formatExportValue(applicant.citizenshipDetails));
+        
+        drawFullWidthField("Address", formatExportValue(applicant.address));
+        drawFullWidthField("Permanent Address", formatExportValue(applicant.permanentAddress));
+        drawFullWidthField("Telephone", formatExportValue(applicant.telephoneNumber));
+        drawFullWidthField("Mobile/Email", `${formatExportValue(applicant.contactNumber)} / ${formatExportValue(applicant.email)}`);
+        
+        drawFieldRow("GSIS No.", formatExportValue(applicant.gsisIdNo), "SSS No.", formatExportValue(applicant.sssNo));
+        drawFieldRow("TIN No.", formatExportValue(applicant.tinNo), "Pag-Ibig No.", formatExportValue(applicant.pagibigIdNo));
+        drawFieldRow("PhilHealth No.", formatExportValue(applicant.philhealthNo), "PhilSys No.", formatExportValue(applicant.philsysNo));
+        drawFullWidthField("Agency Employee No.", formatExportValue(applicant.agencyEmployeeNo));
+
+        // II. FAMILY BACKGROUND
+        drawSectionHeader("II", "FAMILY BACKGROUND");
+        drawFieldRow("Spouse Name", formatExportValue([applicant.spouseSurname, applicant.spouseFirstName].filter(Boolean).join(" ")), "Occupation", formatExportValue(applicant.spouseOccupation));
+        drawFullWidthField("Employer/Business Name", formatExportValue(applicant.spouseEmployerBusinessName));
+        drawFieldRow("Business Address", formatExportValue(applicant.spouseBusinessAddress), "Telephone", formatExportValue(applicant.spouseTelephoneNo));
+        drawFieldRow("Father Name", formatExportValue([applicant.fatherSurname, applicant.fatherFirstName].filter(Boolean).join(" ")), "Mother Name", formatExportValue([applicant.motherSurname, applicant.motherFirstName].filter(Boolean).join(" ")));
+
+        // III. EDUCATIONAL BACKGROUND
+        drawSectionHeader("III", "EDUCATIONAL BACKGROUND");
+        drawTable(
           ["Level", "School", "Degree/Course", "From", "To", "Units", "Year", "Honors"],
           educationRows.map((row) => [
             formatExportValue(row.level),
@@ -1304,11 +1368,12 @@ export default function Applicants() {
             formatExportValue(row.yearGraduated),
             formatExportValue(row.scholarshipHonors)
           ]),
-          [58, 112, 92, 44, 44, 45, 45, 68]
+          [15, 25, 25, 12, 12, 10, 10, 15]
         );
 
-        drawSectionHeader("IV. CIVIL SERVICE ELIGIBILITY");
-        drawGridTable(
+        // IV. CIVIL SERVICE ELIGIBILITY
+        drawSectionHeader("IV", "CIVIL SERVICE ELIGIBILITY");
+        drawTable(
           ["Eligibility", "Rating", "Exam Date", "Exam Place", "License No.", "Validity"],
           civilServiceRows.map((row) => [
             formatExportValue(row.eligibility),
@@ -1318,25 +1383,27 @@ export default function Applicants() {
             formatExportValue(row.licenseNumber),
             formatExportValue(row.licenseValidUntil)
           ]),
-          [116, 58, 68, 130, 78, 65]
+          [25, 12, 15, 30, 20, 17]
         );
 
-        drawSectionHeader("V. WORK EXPERIENCE");
-        drawGridTable(
-          ["From", "To", "Position Title", "Agency/Company", "Status", "Govt"],
+        // V. WORK EXPERIENCE
+        drawSectionHeader("V", "WORK EXPERIENCE");
+        drawTable(
+          ["From", "To", "Position", "Agency/Company", "Status", "Govt"],
           workRows.map((row) => [
             formatExportValue(row.dateFrom),
             formatExportValue(row.dateTo),
             formatExportValue(row.positionTitle),
             formatExportValue(row.departmentAgencyOfficeCompany),
             formatExportValue(row.statusOfAppointment),
-            row.isGovtService === "Y" ? "Yes" : row.isGovtService === "N" ? "No" : "N/A"
+            row.isGovtService === "Y" ? "Y" : row.isGovtService === "N" ? "N" : ""
           ]),
-          [52, 52, 120, 160, 95, 36]
+          [12, 12, 20, 30, 15, 8]
         );
 
-        drawSectionHeader("VI. VOLUNTARY WORK");
-        drawGridTable(
+        // VI. VOLUNTARY WORK
+        drawSectionHeader("VI", "VOLUNTARY WORK");
+        drawTable(
           ["Organization", "From", "To", "Hours", "Position/Nature"],
           voluntaryRows.map((row) => [
             formatExportValue(row.organizationNameAddress),
@@ -1345,12 +1412,13 @@ export default function Applicants() {
             formatExportValue(row.numberOfHours),
             formatExportValue(row.positionNatureOfWork)
           ]),
-          [220, 60, 60, 48, 127]
+          [35, 12, 12, 12, 38]
         );
 
-        drawSectionHeader("VII. LEARNING AND DEVELOPMENT (L&D)");
-        drawGridTable(
-          ["Title", "From", "To", "Hours", "Type", "Conducted/Sponsored By"],
+        // VII. LEARNING AND DEVELOPMENT
+        drawSectionHeader("VII", "LEARNING AND DEVELOPMENT (L&D)");
+        drawTable(
+          ["Title", "From", "To", "Hours", "Type", "Conducted By"],
           trainingRows.map((row) => [
             formatExportValue(row.title),
             formatExportValue(row.dateFrom),
@@ -1359,26 +1427,37 @@ export default function Applicants() {
             formatExportValue(row.typeOfLd),
             formatExportValue(row.conductedSponsoredBy)
           ]),
-          [168, 52, 52, 44, 78, 121]
+          [25, 12, 12, 10, 15, 30]
         );
 
-        drawSectionHeader("VIII. OTHER INFORMATION");
-        drawGridTable(
-          ["Special Skills/Hobbies", "Non-Academic Distinctions", "Memberships/Organization"],
+        // VIII. OTHER INFORMATION
+        drawSectionHeader("VIII", "OTHER INFORMATION");
+        drawTable(
+          ["Special Skills", "Non-Academic Distinctions", "Memberships/Organization"],
           otherInfoRows.map((row) => [
             formatExportValue(row.specialSkillsHobbies),
             formatExportValue(row.nonAcademicDistinctionsRecognition),
             formatExportValue(row.membershipsAssociationOrganization)
           ]),
-          [170, 170, 175]
+          [33, 33, 33]
         );
-        drawKeyValueRows([["References", formatExportValue(applicant.referencesInfo)]]);
+        drawFullWidthField("References", formatExportValue(applicant.referencesInfo));
 
-        drawSectionHeader("IX. APPLICATIONS");
-        drawGridTable(["Position", "Status", "Date Applied", "Remarks"], applicationRows, [200, 95, 90, 130]);
+        // IX. APPLICATIONS
+        drawSectionHeader("IX", "APPLICATIONS");
+        drawTable(
+          ["Position", "Status", "Date Applied", "Remarks"],
+          applicationRows,
+          [35, 25, 20, 29]
+        );
 
-        drawSectionHeader("X. SUBMITTED DOCUMENTS");
-        drawGridTable(["Document Name", "Type"], documentRows, [395, 120]);
+        // X. SUBMITTED DOCUMENTS
+        drawSectionHeader("X", "SUBMITTED DOCUMENTS");
+        drawTable(
+          ["Document Name", "Type"],
+          documentRows,
+          [69, 20]
+        );
 
         pdf.save(`${fileNameBase}.pdf`);
       } else {

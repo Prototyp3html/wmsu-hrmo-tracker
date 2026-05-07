@@ -892,8 +892,50 @@ function mapHistory(row: any) {
 type ParsedApplicantDraft = {
   fullName: string;
   contactNumber: string;
+  telephoneNumber: string;
   email: string;
   address: string;
+  permanentAddress: string;
+  dateOfBirth: string;
+  placeOfBirth: string;
+  sex: string;
+  civilStatus: string;
+  citizenship: string;
+  height: string;
+  weight: string;
+  bloodType: string;
+  gsisIdNo: string;
+  philsysNo: string;
+  pagibigIdNo: string;
+  philhealthNo: string;
+  citizenshipDetails: string;
+  sssNo: string;
+  tinNo: string;
+  agencyEmployeeNo: string;
+  spouseName: string;
+  spouseSurname: string;
+  spouseFirstName: string;
+  spouseMiddleName: string;
+  spouseNameExtension: string;
+  spouseOccupation: string;
+  spouseEmployerBusinessName: string;
+  spouseBusinessAddress: string;
+  spouseTelephoneNo: string;
+  childrenInfo: string;
+  fatherName: string;
+  fatherSurname: string;
+  fatherFirstName: string;
+  fatherMiddleName: string;
+  fatherNameExtension: string;
+  motherName: string;
+  motherSurname: string;
+  motherFirstName: string;
+  motherMiddleName: string;
+  civilServiceEligibility: string;
+  voluntaryWork: string;
+  trainings: string;
+  otherInfo: string;
+  referencesInfo: string;
   educationalBackground: string;
   workExperience: string;
   rawTextLength: number;
@@ -1041,29 +1083,316 @@ function extractPhoneNumber(text: string): string {
   return "";
 }
 
+// ==================== ENHANCED PHILIPPINE PDS EXTRACTION ====================
+
+function extractTelephoneNumber(text: string): string {
+  const match = text.match(/(?:Telephone|Tel|Phone|Contact)\s*(?:Number|No\.?)?\s*[:=]?\s*([+\d\s\-()\.]{6,30})/i);
+  return match ? match[1].replace(/\D+/g, "").slice(0, 20) : "";
+}
+
+function extractDateOfBirth(text: string): string {
+  const patterns = [
+    /Date\s+of\s+Birth\s*[:=]?\s*([0-9]{1,2}[-\/]?[0-9]{1,2}[-\/]?[0-9]{2,4})/i,
+    /DOB\s*[:=]?\s*([0-9]{1,2}[-\/]?[0-9]{1,2}[-\/]?[0-9]{2,4})/i,
+    /Born\s*[:=]?\s*([0-9]{1,2}[-\/]?[0-9]{1,2}[-\/]?[0-9]{2,4})/i,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return normalizeDate(match[1]);
+  }
+  return "";
+}
+
+function extractPlaceOfBirth(text: string): string {
+  const match = text.match(/Place\s+of\s+Birth\s*[:=]?\s*([^\n]{3,100})/i);
+  return match ? match[1].trim().slice(0, 100) : "";
+}
+
+function extractPermanentAddress(text: string): string {
+  const match = text.match(/Permanent\s+Address\s*[:=]?\s*([^\n]{5,200})/i);
+  return match ? match[1].trim().slice(0, 200) : extractLabeledValue(text, ["permanent address"], ["current address", "temporary"]).slice(0, 200);
+}
+
+function extractCurrentAddress(text: string): string {
+  const match = text.match(/(?:Current|Residential)\s+Address\s*[:=]?\s*([^\n]{5,200})/i);
+  return match ? match[1].trim().slice(0, 200) : extractLabeledValue(text, ["address", "residential"], ["permanent", "contact"]).slice(0, 200);
+}
+
+function extractSex(text: string): string {
+  if (/\b(?:female|girl|woman)\b/i.test(text)) return "Female";
+  if (/\b(?:male|boy|man)\b/i.test(text)) return "Male";
+  return "";
+}
+
+function extractCivilStatus(text: string): string {
+  const statuses = ["Single", "Married", "Widowed", "Separated", "Divorced"];
+  for (const s of statuses) {
+    if (new RegExp(`\\b${s}\\b`, "i").test(text)) return s;
+  }
+  return "";
+}
+
+function extractCitizenship(text: string): string {
+  if (/\b(?:dual citizenship)\b/i.test(text)) return "Dual Citizenship";
+  if (/\b(?:natural born|naturalized|foreign|alien|foreigner)\b/i.test(text)) {
+    return /\bnatural\s+born\b/i.test(text) ? "Natural Born Filipino" : "Naturalized Filipino";
+  }
+  if (/\bFilipino\b/i.test(text)) return "Natural Born Filipino";
+  return "";
+}
+
+function extractCitizenshipDetails(text: string): string {
+  const match = text.match(/Dual\s+Citizenship\s*[:=]?\s*(?:By\s+(Birth|Naturalization))?\s*(.{0,100})/i);
+  if (match) return `By ${match[1] || ""}${match[2] ? ": " + match[2] : ""}`.trim();
+  return "";
+}
+
+function extractMeasurement(text: string, keywords: string[]): string {
+  for (const keyword of keywords) {
+    const pattern = new RegExp(`${keyword}\\s*[:=]?\\s*([0-9]{1,3}(?:\\.[0-9]{1,2})?\\s*(?:cm|ft|lbs|kg)?)`, "i");
+    const match = text.match(pattern);
+    if (match) return match[1].slice(0, 20);
+  }
+  return "";
+}
+
+function extractBloodType(text: string): string {
+  const match = text.match(/Blood\s+Type\s*[:=]?\s*([OAB]{1,2}(?:[+-])?)/i);
+  return match ? match[1] : "";
+}
+
+// Philippine ID Numbers
+function extractGSIS(text: string): string {
+  const match = text.match(/GSIS\s*(?:No\.?|ID\s*No\.?|Number)?\s*[:=]?\s*([0-9\s-]{6,20})/i);
+  return match ? match[1].replace(/\s+/g, "").slice(0, 20) : "";
+}
+
+function extractSSS(text: string): string {
+  const match = text.match(/SSS\s*(?:No\.?|ID\s*No\.?|Number)?\s*[:=]?\s*([0-9\s-]{6,20})/i);
+  return match ? match[1].replace(/\s+/g, "").slice(0, 20) : "";
+}
+
+function extractTIN(text: string): string {
+  const match = text.match(/TIN\s*(?:No\.?|ID\s*No\.?|Number)?\s*[:=]?\s*([0-9\s-]{6,20})/i);
+  return match ? match[1].replace(/\s+/g, "").slice(0, 20) : "";
+}
+
+function extractPagibig(text: string): string {
+  const match = text.match(/Pag[_-]?Ibig\s*(?:No\.?|ID\s*No\.?|Number)?\s*[:=]?\s*([0-9\s-]{6,20})/i);
+  return match ? match[1].replace(/\s+/g, "").slice(0, 20) : "";
+}
+
+function extractPhilHealth(text: string): string {
+  const match = text.match(/Phil[_-]?Health\s*(?:No\.?|ID\s*No\.?|Number)?\s*[:=]?\s*([0-9\s-]{6,20})/i);
+  return match ? match[1].replace(/\s+/g, "").slice(0, 20) : "";
+}
+
+function extractPhilSys(text: string): string {
+  const match = text.match(/Phil[_-]?Sys\s*(?:No\.?|ID\s*No\.?|Number)?\s*[:=]?\s*([0-9\s-]{6,20})/i);
+  return match ? match[1].replace(/\s+/g, "").slice(0, 20) : "";
+}
+
+function extractAgencyNumber(text: string): string {
+  const match = text.match(/Agency\s+(?:Employee\s+)?No\.?\s*[:=]?\s*([0-9\s-]{4,20})/i);
+  return match ? match[1].replace(/\s+/g, "").slice(0, 20) : "";
+}
+
+// Family Information
+function extractSpouseName(text: string): string {
+  const section = extractLabeledValue(text, ["spouse", "husband", "wife"], []).slice(0, 200);
+  const match = section.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/);
+  return match ? match[1] : "";
+}
+
+function extractSpouseSurname(text: string): string {
+  const spouseName = extractSpouseName(text);
+  const parts = spouseName.split(/\s+/);
+  return parts[0] || "";
+}
+
+function extractSpouseFirstName(text: string): string {
+  const spouseName = extractSpouseName(text);
+  const parts = spouseName.split(/\s+/);
+  return parts[1] || "";
+}
+
+function extractSpouseMiddleName(text: string): string {
+  const spouseName = extractSpouseName(text);
+  const parts = spouseName.split(/\s+/);
+  return parts[2] || "";
+}
+
+function extractSpouseOccupation(text: string): string {
+  const match = text.match(/Spouse\s+(?:Occupation|Job)\s*[:=]?\s*([^\n]{2,100})/i);
+  return match ? match[1].trim().slice(0, 100) : "";
+}
+
+function extractSpouseEmployer(text: string): string {
+  const match = text.match(/Spouse\s+(?:Employer|Company|Business\s+Name)\s*[:=]?\s*([^\n]{2,100})/i);
+  return match ? match[1].trim().slice(0, 100) : "";
+}
+
+function extractSpouseAddress(text: string): string {
+  const match = text.match(/Spouse\s+(?:Business\s+)?Address\s*[:=]?\s*([^\n]{2,200})/i);
+  return match ? match[1].trim().slice(0, 200) : "";
+}
+
+function extractSpouseTelephone(text: string): string {
+  const match = text.match(/Spouse\s+(?:Telephone|Phone|Contact)\s*[:=]?\s*([+\d\s\-()\.]{6,30})/i);
+  return match ? match[1].replace(/\D+/g, "").slice(0, 20) : "";
+}
+
+function extractChildrenInfo(text: string): string {
+  const section = pickSection(text, ["children", "child", "dependents"]);
+  return section.slice(0, 500);
+}
+
+function extractFatherName(text: string): string {
+  const section = extractLabeledValue(text, ["father", "paternal"], []).slice(0, 200);
+  const match = section.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/);
+  return match ? match[1] : "";
+}
+
+function extractFatherSurname(text: string): string {
+  const fatherName = extractFatherName(text);
+  const parts = fatherName.split(/\s+/);
+  return parts[0] || "";
+}
+
+function extractFatherFirstName(text: string): string {
+  const fatherName = extractFatherName(text);
+  const parts = fatherName.split(/\s+/);
+  return parts[1] || "";
+}
+
+function extractFatherMiddleName(text: string): string {
+  const fatherName = extractFatherName(text);
+  const parts = fatherName.split(/\s+/);
+  return parts[2] || "";
+}
+
+function extractMotherName(text: string): string {
+  const section = extractLabeledValue(text, ["mother", "maternal"], []).slice(0, 200);
+  const match = section.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/);
+  return match ? match[1] : "";
+}
+
+function extractMotherSurname(text: string): string {
+  const motherName = extractMotherName(text);
+  const parts = motherName.split(/\s+/);
+  return parts[0] || "";
+}
+
+function extractMotherFirstName(text: string): string {
+  const motherName = extractMotherName(text);
+  const parts = motherName.split(/\s+/);
+  return parts[1] || "";
+}
+
+function extractMotherMiddleName(text: string): string {
+  const motherName = extractMotherName(text);
+  const parts = motherName.split(/\s+/);
+  return parts[2] || "";
+}
+
+// Helper: Normalize dates to YYYY-MM-DD
+function normalizeDate(dateStr: string): string {
+  const cleaned = dateStr.replace(/[^\d/-]/g, "");
+  const parts = cleaned.split(/[-/]/);
+  
+  if (parts.length === 3) {
+    let [first, second, third] = parts.map(p => p.trim());
+    
+    // Detect format and normalize
+    if (parseInt(third) > 31) {
+      // Format: YYYY-MM-DD or YYYY-DD-MM
+      return `${third}-${first.padStart(2, "0")}-${second.padStart(2, "0")}`;
+    } else if (parseInt(first) > 31) {
+      // Format: YYYY-MM-DD
+      return `${first}-${second.padStart(2, "0")}-${third.padStart(2, "0")}`;
+    } else {
+      // Format: DD-MM-YYYY or MM-DD-YYYY - assume DD-MM-YYYY
+      return `${third}-${second.padStart(2, "0")}-${first.padStart(2, "0")}`;
+    }
+  }
+  return dateStr;
+}
+
 function parseApplicantDraftFromText(rawText: string): ParsedApplicantDraft {
   const text = cleanupExtractedText(rawText);
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
 
-  const labeledEmail = extractLabeledValue(text, ["email", "e-mail"], ["phone", "mobile", "contact", "address", "education", "experience"]);
+  // Extract basic contact info
+  const labeledEmail = extractLabeledValue(text, ["email", "e-mail"], ["phone", "mobile", "contact", "address"]);
   const emailMatch = normalizeEmailCandidate(labeledEmail) || extractEmailFromText(text);
   const contactNumber = extractPhoneNumber(text);
-  const addressMatch = extractLabeledValue(
-    text,
-    ["address", "location"],
-    ["education", "educational background", "experience", "work experience", "skills", "references"]
-  );
-
-  const educationalBackground = pickSection(text, ["education", "educational background", "academic background"]);
-  const workExperience = pickSection(text, ["work experience", "experience", "employment history"]);
+  const addressMatch = extractCurrentAddress(text) || extractLabeledValue(text, ["address", "location"], ["education", "experience"]);
 
   return {
     fullName: pickNameCandidate(lines).slice(0, 120),
-    contactNumber: contactNumber,
+    contactNumber: contactNumber.slice(0, 20),
+    telephoneNumber: extractTelephoneNumber(text).slice(0, 20),
     email: emailMatch.slice(0, 120),
     address: (addressMatch || pickAddressCandidate(lines)).slice(0, 200),
-    educationalBackground,
-    workExperience,
+    permanentAddress: extractPermanentAddress(text).slice(0, 200),
+    
+    // Personal Info
+    dateOfBirth: extractDateOfBirth(text).slice(0, 10),
+    placeOfBirth: extractPlaceOfBirth(text).slice(0, 100),
+    sex: extractSex(text),
+    civilStatus: extractCivilStatus(text),
+    citizenship: extractCitizenship(text),
+    height: extractMeasurement(text, ["height"]).slice(0, 20),
+    weight: extractMeasurement(text, ["weight"]).slice(0, 20),
+    bloodType: extractBloodType(text).slice(0, 5),
+    
+    // Government IDs
+    gsisIdNo: extractGSIS(text).slice(0, 20),
+    philsysNo: extractPhilSys(text).slice(0, 20),
+    pagibigIdNo: extractPagibig(text).slice(0, 20),
+    philhealthNo: extractPhilHealth(text).slice(0, 20),
+    citizenshipDetails: extractCitizenshipDetails(text).slice(0, 200),
+    sssNo: extractSSS(text).slice(0, 20),
+    tinNo: extractTIN(text).slice(0, 20),
+    agencyEmployeeNo: extractAgencyNumber(text).slice(0, 20),
+    
+    // Spouse Info
+    spouseName: extractSpouseName(text).slice(0, 120),
+    spouseSurname: extractSpouseSurname(text).slice(0, 60),
+    spouseFirstName: extractSpouseFirstName(text).slice(0, 60),
+    spouseMiddleName: extractSpouseMiddleName(text).slice(0, 60),
+    spouseNameExtension: "",
+    spouseOccupation: extractSpouseOccupation(text).slice(0, 100),
+    spouseEmployerBusinessName: extractSpouseEmployer(text).slice(0, 100),
+    spouseBusinessAddress: extractSpouseAddress(text).slice(0, 200),
+    spouseTelephoneNo: extractSpouseTelephone(text).slice(0, 20),
+    
+    // Children
+    childrenInfo: extractChildrenInfo(text).slice(0, 500),
+    
+    // Father Info
+    fatherName: extractFatherName(text).slice(0, 120),
+    fatherSurname: extractFatherSurname(text).slice(0, 60),
+    fatherFirstName: extractFatherFirstName(text).slice(0, 60),
+    fatherMiddleName: extractFatherMiddleName(text).slice(0, 60),
+    fatherNameExtension: "",
+    
+    // Mother Info
+    motherName: extractMotherName(text).slice(0, 120),
+    motherSurname: extractMotherSurname(text).slice(0, 60),
+    motherFirstName: extractMotherFirstName(text).slice(0, 60),
+    motherMiddleName: extractMotherMiddleName(text).slice(0, 60),
+    
+    // Professional Background
+    educationalBackground: pickSection(text, ["education", "educational background", "academic background"]).slice(0, 500),
+    workExperience: pickSection(text, ["work experience", "employment history", "experience"]).slice(0, 500),
+    civilServiceEligibility: pickSection(text, ["civil service eligibility", "civil service exam"]).slice(0, 200),
+    voluntaryWork: pickSection(text, ["voluntary work", "volunteer"]).slice(0, 300),
+    trainings: pickSection(text, ["trainings", "training", "seminars", "courses"]).slice(0, 300),
+    otherInfo: pickSection(text, ["other information", "additional info", "remarks"]).slice(0, 300),
+    referencesInfo: pickSection(text, ["references", "references"]).slice(0, 300),
+    
     rawTextLength: text.length
   };
 }
