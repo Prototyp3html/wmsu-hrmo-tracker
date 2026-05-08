@@ -7,6 +7,25 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { resetPassword } from "@/lib/api";
 
+function getPasswordStrength(password: string): { score: number; label: string; colorClass: string } {
+  if (!password) return { score: 0, label: "", colorClass: "bg-muted" };
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (password.length >= 12) score++;
+  if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+
+  if (score <= 1) return { score: 1, label: "Weak", colorClass: "bg-destructive" };
+  if (score <= 2) return { score: 2, label: "Fair", colorClass: "bg-yellow-500" };
+  if (score <= 3) return { score: 3, label: "Good", colorClass: "bg-blue-500" };
+  return { score: 4, label: "Strong", colorClass: "bg-emerald-500" };
+}
+
+function isWeakPassword(password: string) {
+  return getPasswordStrength(password).score <= 1;
+}
+
 export default function ResetPassword() {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -15,6 +34,7 @@ export default function ResetPassword() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const strength = getPasswordStrength(newPassword);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -24,8 +44,8 @@ export default function ResetPassword() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      toast({ title: "Password too short", description: "Use at least 6 characters.", variant: "destructive" });
+    if (isWeakPassword(newPassword)) {
+      toast({ title: "Weak password", description: "Use at least 8 characters and include a mix of upper/lowercase, numbers, or symbols.", variant: "destructive" });
       return;
     }
 
@@ -101,6 +121,21 @@ export default function ResetPassword() {
                       onChange={(event) => setNewPassword(event.target.value)}
                       placeholder="Enter your new password"
                     />
+                    {newPassword ? (
+                      <div className="space-y-1">
+                        <div className="flex gap-1">
+                          {[1, 2, 3, 4].map((segment) => (
+                            <div
+                              key={segment}
+                              className={`h-1.5 flex-1 rounded-full ${segment <= strength.score ? strength.colorClass : "bg-muted"}`}
+                            />
+                          ))}
+                        </div>
+                        <p className={`text-[11px] ${strength.score <= 1 ? "text-destructive" : "text-muted-foreground"}`}>
+                          Strength: {strength.label}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="confirm-password">Confirm Password</Label>

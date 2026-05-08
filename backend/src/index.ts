@@ -124,6 +124,20 @@ function createToken(user: AuthUser) {
   return jwt.sign(user, JWT_SECRET, { expiresIn: TOKEN_EXPIRES_IN });
 }
 
+function getPasswordStrengthScore(password: string) {
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (password.length >= 12) score++;
+  if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  return score;
+}
+
+function isWeakPassword(password: string) {
+  return getPasswordStrengthScore(password) <= 1;
+}
+
 async function logAudit(req: Request, action: string, userId?: string, details?: Record<string, unknown>) {
   const ip = req.ip;
   const userAgent = req.headers["user-agent"] ?? null;
@@ -1585,8 +1599,8 @@ app.post("/api/auth/forgot-password", authLimiter, asyncHandler(async (req, res)
 
 app.post("/api/auth/reset-password", authLimiter, asyncHandler(async (req, res) => {
   const { token, newPassword } = req.body as { token?: string; newPassword?: string };
-  if (!token?.trim() || !newPassword || newPassword.length < 6) {
-    res.status(400).json({ error: "Token and a new password of at least 6 characters are required." });
+  if (!token?.trim() || !newPassword || isWeakPassword(newPassword)) {
+    res.status(400).json({ error: "Token and a strong new password are required (minimum 8 characters with mixed character types)." });
     return;
   }
 
@@ -1624,8 +1638,8 @@ app.post("/api/auth/reset-password", authLimiter, asyncHandler(async (req, res) 
 app.post("/api/auth/change-password", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
   const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
 
-  if (!currentPassword || !newPassword || newPassword.length < 6) {
-    res.status(400).json({ error: "currentPassword and a new password of at least 6 characters are required." });
+  if (!currentPassword || !newPassword || isWeakPassword(newPassword)) {
+    res.status(400).json({ error: "currentPassword and a strong new password are required (minimum 8 characters with mixed character types)." });
     return;
   }
 
@@ -1746,6 +1760,11 @@ app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req: Authe
     return;
   }
 
+  if (isWeakPassword(password)) {
+    res.status(400).json({ error: "Password is too weak. Use at least 8 characters with mixed character types." });
+    return;
+  }
+
   const existing = await fetchOne("SELECT id FROM users WHERE email = $1", [email]);
   if (existing) {
     res.status(409).json({ error: "Email already exists" });
@@ -1781,6 +1800,11 @@ app.put("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req: Au
 
   if (!name || !email || !role) {
     res.status(400).json({ error: "Name, email, and role are required" });
+    return;
+  }
+
+  if (password && isWeakPassword(password)) {
+    res.status(400).json({ error: "Password is too weak. Use at least 8 characters with mixed character types." });
     return;
   }
 
@@ -1867,8 +1891,8 @@ app.patch("/api/users/:id/status", requireAuth, requireAdmin, asyncHandler(async
 
 app.post("/api/users/:id/reset-password", requireAuth, requireAdmin, asyncHandler(async (req: AuthedRequest, res) => {
   const { newPassword } = req.body as { newPassword?: string };
-  if (!newPassword || newPassword.length < 6) {
-    res.status(400).json({ error: "newPassword is required (minimum 6 characters)." });
+  if (!newPassword || isWeakPassword(newPassword)) {
+    res.status(400).json({ error: "newPassword must be strong (minimum 8 characters with mixed character types)." });
     return;
   }
 

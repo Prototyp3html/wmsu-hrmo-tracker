@@ -35,6 +35,11 @@ function getPasswordStrength(password: string): { score: number; label: string; 
   return { score: 4, label: "Strong", color: "bg-success" };
 }
 
+function isWeakPassword(password: string) {
+  if (!password) return true;
+  return getPasswordStrength(password).score <= 1;
+}
+
 function PasswordStrengthBar({ password }: { password: string }) {
   const { score, label, color } = getPasswordStrength(password);
   if (!password) return null;
@@ -136,6 +141,7 @@ export default function UserManagement() {
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [resetTarget, setResetTarget] = useState<{ id: string; name: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
+  const [resetPasswordError, setResetPasswordError] = useState("");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "staff">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
@@ -223,6 +229,7 @@ export default function UserManagement() {
       setShowResetPassword(false);
       setResetTarget(null);
       setNewPassword("");
+      setResetPasswordError("");
       toast({ title: "Password reset", description: "New password has been set." });
     },
     onError: (error) => {
@@ -247,10 +254,18 @@ export default function UserManagement() {
               className="space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
+                const nextErrors: { name?: string; email?: string; password?: string; confirmPassword?: string } = {};
+                if (isWeakPassword(formState.password)) {
+                  nextErrors.password = "Password is too weak. Use at least 8 characters and mix upper/lowercase, number, or symbol.";
+                }
                 if (formState.password !== formState.confirmPassword) {
-                  setFormErrors({ confirmPassword: "Passwords do not match" });
+                  nextErrors.confirmPassword = "Passwords do not match";
+                }
+                if (nextErrors.password || nextErrors.confirmPassword) {
+                  setFormErrors(nextErrors);
                   return;
                 }
+                setFormErrors({});
                 createMutation.mutate(formState);
               }}
             >
@@ -267,10 +282,16 @@ export default function UserManagement() {
                 <PasswordInput
                   id="pwd-create"
                   value={formState.password}
-                  onChange={(v) => setFormState((p) => ({ ...p, password: v }))}
+                  onChange={(v) => {
+                    setFormState((p) => ({ ...p, password: v }));
+                    setFormErrors((prev) => ({ ...prev, password: undefined }));
+                  }}
                   placeholder="Enter password"
                 />
                 <PasswordStrengthBar password={formState.password} />
+                {formErrors.password && (
+                  <p className="text-xs text-destructive">{formErrors.password}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Confirm Password</Label>
@@ -339,10 +360,20 @@ export default function UserManagement() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!editingUserId) return;
-              if (editFormState.password && editFormState.password !== editFormState.confirmPassword) {
-                setFormErrors({ confirmPassword: "Passwords do not match" });
+              const nextErrors: { name?: string; email?: string; password?: string; confirmPassword?: string } = {};
+              if (editFormState.password) {
+                if (isWeakPassword(editFormState.password)) {
+                  nextErrors.password = "Password is too weak. Use at least 8 characters and mix upper/lowercase, number, or symbol.";
+                }
+                if (editFormState.password !== editFormState.confirmPassword) {
+                  nextErrors.confirmPassword = "Passwords do not match";
+                }
+              }
+              if (nextErrors.password || nextErrors.confirmPassword) {
+                setFormErrors(nextErrors);
                 return;
               }
+              setFormErrors({});
               updateMutation.mutate({
                 id: editingUserId,
                 payload: {
@@ -367,10 +398,16 @@ export default function UserManagement() {
               <PasswordInput
                 id="pwd-edit"
                 value={editFormState.password}
-                onChange={(v) => setEditFormState((p) => ({ ...p, password: v }))}
+                onChange={(v) => {
+                  setEditFormState((p) => ({ ...p, password: v }));
+                  setFormErrors((prev) => ({ ...prev, password: undefined }));
+                }}
                 placeholder="Leave blank to keep current password"
               />
               {editFormState.password && <PasswordStrengthBar password={editFormState.password} />}
+              {formErrors.password && (
+                <p className="text-xs text-destructive">{formErrors.password}</p>
+              )}
             </div>
             {editFormState.password && (
               <div className="space-y-2">
@@ -411,6 +448,11 @@ export default function UserManagement() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!resetTarget) return;
+                if (isWeakPassword(newPassword)) {
+                  setResetPasswordError("Password is too weak. Use at least 8 characters and mix upper/lowercase, number, or symbol.");
+                  return;
+                }
+                setResetPasswordError("");
               resetPasswordMutation.mutate({ id: resetTarget.id, password: newPassword });
             }}
           >
@@ -418,11 +460,16 @@ export default function UserManagement() {
               <Label>New Password</Label>
               <Input
                 type="password"
-                minLength={6}
-                placeholder="Minimum 6 characters"
+                  minLength={8}
+                  placeholder="Use a strong password"
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    setResetPasswordError("");
+                  }}
               />
+                <PasswordStrengthBar password={newPassword} />
+                {resetPasswordError && <p className="text-xs text-destructive">{resetPasswordError}</p>}
             </div>
             <Button className="w-full" type="submit" disabled={resetPasswordMutation.isPending}>Reset Password</Button>
           </form>
@@ -503,6 +550,7 @@ export default function UserManagement() {
                               onClick={() => {
                                 setResetTarget({ id: u.id, name: u.name });
                                 setNewPassword("");
+                                setResetPasswordError("");
                                 setShowResetPassword(true);
                               }}
                             >
