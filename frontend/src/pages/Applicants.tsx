@@ -1081,35 +1081,6 @@ export default function Applicants() {
   const [editDocuments, setEditDocuments] = useState<{ resume: File | null; transcript: File | null; certificates: File[] }>(
     { resume: null, transcript: null, certificates: [] }
   );
-  const [editNameParts, setEditNameParts] = useState<NameParts>({
-    firstName: "",
-    middleName: "",
-    lastName: "",
-    extensionName: ""
-  });
-  const [editAddressParts, setEditAddressParts] = useState<AddressParts>({
-    regionCode: "",
-    cityCode: "",
-    barangayCode: "",
-    streetAddress: ""
-  });
-  const [editRegionUnits, setEditRegionUnits] = useState<RegionUnit[]>([]);
-  const [editCityUnits, setEditCityUnits] = useState<LocalityUnit[]>([]);
-  const [editBarangayUnits, setEditBarangayUnits] = useState<BarangayUnit[]>([]);
-  const [editIsLoadingRegions, setEditIsLoadingRegions] = useState(false);
-  const [editIsLoadingCities, setEditIsLoadingCities] = useState(false);
-  const [editIsLoadingBarangays, setEditIsLoadingBarangays] = useState(false);
-  const [editSelectedRegionName, setEditSelectedRegionName] = useState("");
-  const [editSelectedCityName, setEditSelectedCityName] = useState("");
-  const [editSelectedBarangayName, setEditSelectedBarangayName] = useState("");
-  const [editDualCitizenshipType, setEditDualCitizenshipType] = useState<"" | "By Birth" | "By Naturalization">("");
-  const [editChildrenEntries, setEditChildrenEntries] = useState<ChildEntry[]>([{ fullName: "", dateOfBirth: "" }]);
-  const [editEducationEntries, setEditEducationEntries] = useState<EducationEntry[]>(buildDefaultEducationEntries());
-  const [editCivilServiceEntries, setEditCivilServiceEntries] = useState<CivilServiceEntry[]>([createCivilServiceEntry()]);
-  const [editWorkExperienceEntries, setEditWorkExperienceEntries] = useState<WorkExperienceEntry[]>([createWorkExperienceEntry()]);
-  const [editVoluntaryWorkEntries, setEditVoluntaryWorkEntries] = useState<VoluntaryWorkEntry[]>([createVoluntaryWorkEntry()]);
-  const [editTrainingEntries, setEditTrainingEntries] = useState<TrainingEntry[]>([createTrainingEntry()]);
-  const [editOtherInfoEntries, setEditOtherInfoEntries] = useState<OtherInfoEntry[]>([createOtherInfoEntry()]);
 
   const { data: applicants = [] } = useQuery({
     queryKey: ["applicants"],
@@ -1149,458 +1120,714 @@ export default function Applicants() {
 
     setIsExportingApplicant(true);
     try {
-      const relatedApplications = applications.filter((application) => application.applicantId === applicant.id);
-      const fileNameBase = `${applicant.fullName || "applicant"}`
-        .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
-        .replace(/\s+/g, " ")
-        .trim()
-        .replace(/\s+/g, "_") || "applicant";
+      const relatedApplications = applications.filter((a) => a.applicantId === applicant.id);
+      const fileNameBase =
+        (applicant.fullName || "applicant")
+          .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
+          .replace(/\s+/g, "_")
+          .trim() || "applicant";
 
-      const educationRows = parseEducationalBackground(applicant.educationalBackground || "").filter((row) =>
-        hasMeaningfulValue(row.level) ||
-        hasMeaningfulValue(row.schoolName) ||
-        hasMeaningfulValue(row.degreeCourse) ||
-        hasMeaningfulValue(row.attendanceFrom) ||
-        hasMeaningfulValue(row.attendanceTo) ||
-        hasMeaningfulValue(row.highestLevelUnitsEarned) ||
-        hasMeaningfulValue(row.yearGraduated) ||
-        hasMeaningfulValue(row.scholarshipHonors)
+      // ── parse stored strings ──────────────────────────────────────────────
+      const educationRows = parseEducationalBackground(applicant.educationalBackground || "").filter((r) =>
+        hasMeaningfulValue(r.level) || hasMeaningfulValue(r.schoolName) || hasMeaningfulValue(r.degreeCourse) ||
+        hasMeaningfulValue(r.attendanceFrom) || hasMeaningfulValue(r.attendanceTo) ||
+        hasMeaningfulValue(r.highestLevelUnitsEarned) || hasMeaningfulValue(r.yearGraduated) || hasMeaningfulValue(r.scholarshipHonors)
       );
-      const civilServiceRows = parseCivilServiceEligibility(applicant.civilServiceEligibility || "").filter((row) =>
-        hasMeaningfulValue(row.eligibility) || hasMeaningfulValue(row.rating) || hasMeaningfulValue(row.examDate) || hasMeaningfulValue(row.examPlace) || hasMeaningfulValue(row.licenseNumber) || hasMeaningfulValue(row.licenseValidUntil)
+      const civilServiceRows = parseCivilServiceEligibility(applicant.civilServiceEligibility || "").filter((r) =>
+        hasMeaningfulValue(r.eligibility) || hasMeaningfulValue(r.rating) || hasMeaningfulValue(r.examDate) ||
+        hasMeaningfulValue(r.examPlace) || hasMeaningfulValue(r.licenseNumber) || hasMeaningfulValue(r.licenseValidUntil)
       );
-      const workRows = parseWorkExperience(applicant.workExperience || "").filter((row) =>
-        hasMeaningfulValue(row.positionTitle) || hasMeaningfulValue(row.departmentAgencyOfficeCompany) || hasMeaningfulValue(row.dateFrom) || hasMeaningfulValue(row.dateTo) || hasMeaningfulValue(row.statusOfAppointment) || hasMeaningfulValue(row.isGovtService)
+      const workRows = parseWorkExperience(applicant.workExperience || "").filter((r) =>
+        hasMeaningfulValue(r.positionTitle) || hasMeaningfulValue(r.departmentAgencyOfficeCompany) ||
+        hasMeaningfulValue(r.dateFrom) || hasMeaningfulValue(r.dateTo) ||
+        hasMeaningfulValue(r.statusOfAppointment) || hasMeaningfulValue(r.isGovtService)
       );
-      const voluntaryRows = parseVoluntaryWork(applicant.voluntaryWork || "").filter((row) =>
-        hasMeaningfulValue(row.organizationNameAddress) || hasMeaningfulValue(row.dateFrom) || hasMeaningfulValue(row.dateTo) || hasMeaningfulValue(row.numberOfHours) || hasMeaningfulValue(row.positionNatureOfWork)
+      const voluntaryRows = parseVoluntaryWork(applicant.voluntaryWork || "").filter((r) =>
+        hasMeaningfulValue(r.organizationNameAddress) || hasMeaningfulValue(r.dateFrom) ||
+        hasMeaningfulValue(r.dateTo) || hasMeaningfulValue(r.numberOfHours) || hasMeaningfulValue(r.positionNatureOfWork)
       );
-      const trainingRows = parseTrainings(applicant.trainings || "").filter((row) =>
-        hasMeaningfulValue(row.title) || hasMeaningfulValue(row.dateFrom) || hasMeaningfulValue(row.dateTo) || hasMeaningfulValue(row.numberOfHours) || hasMeaningfulValue(row.typeOfLd) || hasMeaningfulValue(row.conductedSponsoredBy)
+      const trainingRows = parseTrainings(applicant.trainings || "").filter((r) =>
+        hasMeaningfulValue(r.title) || hasMeaningfulValue(r.dateFrom) || hasMeaningfulValue(r.dateTo) ||
+        hasMeaningfulValue(r.numberOfHours) || hasMeaningfulValue(r.typeOfLd) || hasMeaningfulValue(r.conductedSponsoredBy)
       );
-      const otherInfoRows = parseOtherInfo(applicant.otherInfo || "").filter((row) =>
-        hasMeaningfulValue(row.specialSkillsHobbies) || hasMeaningfulValue(row.nonAcademicDistinctionsRecognition) || hasMeaningfulValue(row.membershipsAssociationOrganization)
+      const otherInfoRows = parseOtherInfo(applicant.otherInfo || "").filter((r) =>
+        hasMeaningfulValue(r.specialSkillsHobbies) || hasMeaningfulValue(r.nonAcademicDistinctionsRecognition) ||
+        hasMeaningfulValue(r.membershipsAssociationOrganization)
+      );
+      const children = parseChildrenInfo(applicant.childrenInfo || "").filter(
+        (c) => hasMeaningfulValue(c.fullName) || hasMeaningfulValue(c.dateOfBirth)
       );
 
-      const personalRows: Array<[string, string]> = [
-        ["Surname / First / Middle / Extension", formatExportValue(applicant.fullName)],
-        ["Date of Birth", formatExportValue(applicant.dateOfBirth)],
-        ["Place of Birth", formatExportValue(applicant.placeOfBirth)],
-        ["Sex", formatExportValue(applicant.sex)],
-        ["Civil Status", formatExportValue(applicant.civilStatus)],
-        ["Citizenship", formatExportValue(applicant.citizenship)],
-        ["Citizenship Details", formatExportValue(applicant.citizenshipDetails)],
-        ["Height / Weight / Blood Type", `${formatExportValue(applicant.height)} / ${formatExportValue(applicant.weight)} / ${formatExportValue(applicant.bloodType)}`],
-        ["Address", formatExportValue(applicant.address)],
-        ["Permanent Address", formatExportValue(applicant.permanentAddress)],
-        ["Telephone / Mobile / Email", `${formatExportValue(applicant.telephoneNumber)} / ${formatExportValue(applicant.contactNumber)} / ${formatExportValue(applicant.email)}`],
-        ["GSIS / PAG-IBIG / PHILHEALTH", `${formatExportValue(applicant.gsisIdNo)} / ${formatExportValue(applicant.pagibigIdNo)} / ${formatExportValue(applicant.philhealthNo)}`],
-        ["PhilSys / SSS / TIN / Agency No.", `${formatExportValue(applicant.philsysNo)} / ${formatExportValue(applicant.sssNo)} / ${formatExportValue(applicant.tinNo)} / ${formatExportValue(applicant.agencyEmployeeNo)}`]
-      ];
+      // ── name parts ───────────────────────────────────────────────────────
+      const np = splitFullName(applicant.fullName || "");
 
-      const familyRows: Array<[string, string]> = [
-        ["Spouse Name", formatExportValue([applicant.spouseSurname, applicant.spouseFirstName, applicant.spouseMiddleName, applicant.spouseNameExtension].filter(Boolean).join(" "))],
-        ["Spouse Occupation", formatExportValue(applicant.spouseOccupation)],
-        ["Spouse Employer / Business", formatExportValue(applicant.spouseEmployerBusinessName)],
-        ["Spouse Business Address", formatExportValue(applicant.spouseBusinessAddress)],
-        ["Spouse Telephone", formatExportValue(applicant.spouseTelephoneNo)],
-        ["Father Name", formatExportValue([applicant.fatherSurname, applicant.fatherFirstName, applicant.fatherMiddleName, applicant.fatherNameExtension].filter(Boolean).join(" "))],
-        ["Mother Maiden Name", formatExportValue([applicant.motherSurname, applicant.motherFirstName, applicant.motherMiddleName].filter(Boolean).join(" "))]
-      ];
-
-      const applicationRows = relatedApplications.map((app) => {
-        const vacancy = jobVacancies.find((vacancyItem) => vacancyItem.id === app.vacancyId);
-        return [formatExportValue(vacancy?.positionTitle), formatExportValue(app.status), formatExportValue(app.dateApplied), formatExportValue(app.remarks)];
-      });
-
-      const documentRows = applicantDocuments.map((doc) => [formatExportValue(doc.originalName), formatExportValue(doc.docType)]);
-
+      // ════════════════════════════════════════════════════════════════════
+      //  PDF — CS Form No. 212 (Revised 2017) faithful layout
+      // ════════════════════════════════════════════════════════════════════
       if (format === "pdf") {
         const { jsPDF } = await import("jspdf");
-        const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-        const margin = 28;
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const contentWidth = pageWidth - margin * 2;
-        let cursorY = margin + 54;
+        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
-        const drawPageBorder = () => {
-          pdf.setLineWidth(0.8);
-          pdf.rect(margin - 8, margin - 8, contentWidth + 16, pageHeight - margin * 2 + 16);
+        const PW = pdf.internal.pageSize.getWidth();   // 210
+        const PH = pdf.internal.pageSize.getHeight();  // 297
+        const ML = 8;
+        const CW = PW - ML * 2;                        // 194
+
+        // ── palette (matches actual CSC PDS grayscale print style) ────────
+        // Section header bars: dark charcoal gray, white text
+        const SEC_BG:    [number,number,number] = [64,  64,  64];
+        // Sub-section bars (Spouse / Father / Mother): medium gray
+        const SUB_BG:    [number,number,number] = [160, 160, 160];
+        // Column header cells: light gray
+        const COL_BG:    [number,number,number] = [220, 220, 220];
+        // Warning / instruction strips: very light gray
+        const STRIP_BG:  [number,number,number] = [242, 242, 242];
+        const WHITE:     [number,number,number] = [255, 255, 255];
+        const BLACK:     [number,number,number] = [0,   0,   0];
+        const DGRAY:     [number,number,number] = [80,  80,  80];
+        const LGRAY:     [number,number,number] = [100, 100, 100];
+
+        let y = ML;
+
+        // ── low-level helpers ─────────────────────────────────────────────
+
+        const newPage = () => { pdf.addPage(); y = ML; };
+
+        // guard() is used ONLY for whole-section pre-flight checks.
+        // Never call it inside a row loop — that causes mid-table page breaks.
+        const guard = (need: number) => { if (y + need > PH - ML) newPage(); };
+
+        const fillR = (x: number, ry: number, w: number, h: number, c: [number,number,number]) => {
+          pdf.setFillColor(...c);
+          pdf.rect(x, ry, w, h, "F");
         };
 
-        const addPage = () => {
-          pdf.addPage();
-          drawPageBorder();
-          cursorY = margin;
+        const borderR = (x: number, ry: number, w: number, h: number, lw = 0.15) => {
+          pdf.setDrawColor(...DGRAY);
+          pdf.setLineWidth(lw);
+          pdf.rect(x, ry, w, h, "S");
         };
 
-        const ensureSpace = (requiredHeight: number) => {
-          if (cursorY + requiredHeight <= pageHeight - margin) return;
-          addPage();
+        const txt = (
+          text: string,
+          x: number, ry: number, w: number, h: number,
+          sz = 7, bold = false, color: [number,number,number] = BLACK,
+          align: "left"|"center"|"right" = "left", pad = 0.9
+        ) => {
+          pdf.setFontSize(sz);
+          pdf.setFont("helvetica", bold ? "bold" : "normal");
+          pdf.setTextColor(...color);
+          const lh = sz * 0.352;
+          const cy = ry + h / 2 + lh * 0.35;
+          const maxW = w - pad * 2;
+          const tx = align === "center" ? x + w / 2 : align === "right" ? x + w - pad : x + pad;
+          const lines = pdf.splitTextToSize(String(text ?? ""), maxW);
+          pdf.text(lines[0] ?? "", tx, cy, { align, maxWidth: maxW });
         };
 
-        const drawSectionHeader = (title: string) => {
-          ensureSpace(26);
-          pdf.setFillColor(235, 235, 235);
-          pdf.rect(margin, cursorY, contentWidth, 20, "F");
-          pdf.setLineWidth(0.6);
-          pdf.rect(margin, cursorY, contentWidth, 20);
-          pdf.setFont("helvetica", "bold");
-          pdf.setFontSize(10.5);
-          pdf.text(title, margin + 6, cursorY + 14);
-          cursorY += 20;
+        const smallTxt = (text: string, x: number, ry: number, w: number, pad = 0.9) => {
+          pdf.setFontSize(5.2);
+          pdf.setFont("helvetica", "normal");
+          pdf.setTextColor(...LGRAY);
+          pdf.text(String(text), x + pad, ry + 1.8, { maxWidth: w - pad * 2 });
         };
 
-        const drawKeyValueRows = (rows: Array<[string, string]>) => {
-          const labelWidth = 170;
-          rows.forEach(([label, value]) => {
-            const labelLines = pdf.splitTextToSize(label, labelWidth - 10) as string[];
-            const valueLines = pdf.splitTextToSize(value, contentWidth - labelWidth - 10) as string[];
-            const rowHeight = Math.max(labelLines.length, valueLines.length) * 11 + 6;
-            ensureSpace(rowHeight);
-            pdf.setLineWidth(0.4);
-            pdf.rect(margin, cursorY, labelWidth, rowHeight);
-            pdf.rect(margin + labelWidth, cursorY, contentWidth - labelWidth, rowHeight);
-            pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(9);
-            labelLines.forEach((line, index) => {
-              pdf.text(line, margin + 4, cursorY + 12 + index * 11);
-            });
-            pdf.setFont("helvetica", "normal");
-            valueLines.forEach((line, index) => {
-              pdf.text(line, margin + labelWidth + 4, cursorY + 12 + index * 11);
-            });
-            cursorY += rowHeight;
+        /** label+value cell: gray label caption top-left, value text in lower 60% */
+        const lvc = (label: string, value: string, x: number, ry: number, w: number, h: number, vsz = 7.5) => {
+          fillR(x, ry, w, h, WHITE);
+          borderR(x, ry, w, h);
+          smallTxt(label, x, ry, w);
+          txt(value || "", x, ry + h * 0.38, w, h * 0.62, vsz, false, BLACK, "left");
+        };
+
+        /** column header cell — light gray fill, dark text, centered */
+        const hdr = (label: string, x: number, ry: number, w: number, h: number) => {
+          fillR(x, ry, w, h, COL_BG);
+          borderR(x, ry, w, h);
+          pdf.setFontSize(5.5); pdf.setFont("helvetica","bold"); pdf.setTextColor(...BLACK);
+          const lines = pdf.splitTextToSize(label, w - 1.6);
+          const lineH = 5.5 * 0.352;
+          const totalH = lines.length * lineH * 1.3;
+          const startY = ry + (h - totalH) / 2 + lineH;
+          lines.forEach((l: string, i: number) => {
+            pdf.text(l, x + w / 2, startY + i * lineH * 1.3, { align: "center", maxWidth: w - 1.6 });
           });
         };
 
-        const drawGridTable = (headers: string[], rows: string[][], columnWidths: number[]) => {
-          const drawRow = (values: string[], isHeader: boolean) => {
-            const colTexts = values.map((value, index) => pdf.splitTextToSize(value, columnWidths[index] - 8) as string[]);
-            const rowHeight = Math.max(...colTexts.map((text) => text.length)) * 11 + 6;
-            ensureSpace(rowHeight);
-            let startX = margin;
-            values.forEach((_, index) => {
-              if (isHeader) {
-                pdf.setFillColor(245, 245, 245);
-                pdf.rect(startX, cursorY, columnWidths[index], rowHeight, "F");
-              }
-              pdf.rect(startX, cursorY, columnWidths[index], rowHeight);
-              pdf.setFont("helvetica", isHeader ? "bold" : "normal");
-              pdf.setFontSize(8.5);
-              colTexts[index].forEach((line, lineIndex) => {
-                pdf.text(line, startX + 4, cursorY + 12 + lineIndex * 11);
-              });
-              startX += columnWidths[index];
-            });
-            cursorY += rowHeight;
-          };
-
-          drawRow(headers, true);
-          if (rows.length === 0) {
-            drawRow(["No records", ...headers.slice(1).map(() => "")], false);
-            return;
-          }
-          rows.forEach((row) => drawRow(row, false));
+        /** value-only cell */
+        const vc = (value: string, x: number, ry: number, w: number, h: number, sz = 7) => {
+          fillR(x, ry, w, h, WHITE);
+          borderR(x, ry, w, h);
+          txt(value || "", x, ry, w, h, sz);
         };
 
-        drawPageBorder();
-        pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(16);
-        pdf.text("PERSONAL DATA SHEET", pageWidth / 2, margin + 12, { align: "center" });
-        pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(9);
-        pdf.text(`Generated: ${new Date().toLocaleString()}`, pageWidth / 2, margin + 28, { align: "center" });
-        pdf.text(`Applicant: ${applicant.fullName || "N/A"}`, pageWidth / 2, margin + 42, { align: "center" });
+        /** section header bar — dark gray fill, white bold text */
+        const secHdr = (num: string, title: string): number => {
+          const h = 5.5;
+          // NOTE: do NOT call guard() here — callers must guard the full
+          // section block height BEFORE calling secHdr so the header and
+          // its table always land on the same page.
+          fillR(ML, y, CW, h, SEC_BG);
+          borderR(ML, y, CW, h, 0.2);
+          txt(`${num}  ${title.toUpperCase()}`, ML, y, CW, h, 7, true, WHITE, "left");
+          y += h;
+          return y;
+        };
 
-        drawSectionHeader("I. PERSONAL INFORMATION");
-        drawKeyValueRows(personalRows);
+        /** sub-bar (medium gray) — Spouse / Father / Mother labels */
+        const subBar = (title: string): number => {
+          const h = 4.5;
+          fillR(ML, y, CW, h, SUB_BG);
+          borderR(ML, y, CW, h, 0.15);
+          txt(title, ML, y, CW, h, 6, true, WHITE);
+          y += h;
+          return y;
+        };
 
-        drawSectionHeader("II. FAMILY BACKGROUND");
-        drawKeyValueRows(familyRows);
+        /** draw a complete table row — NO guard() inside; caller pre-flights the block */
+        const tblRow = (
+          cols: { w: number; val: string }[],
+          rh: number,
+          isHdr = false
+        ) => {
+          let rx = ML;
+          for (const c of cols) {
+            if (isHdr) hdr(c.val, rx, y, c.w, rh);
+            else        vc(c.val, rx, y, c.w, rh);
+            rx += c.w;
+          }
+          y += rh;
+        };
 
-        drawSectionHeader("III. EDUCATIONAL BACKGROUND");
-        drawGridTable(
-          ["Level", "School", "Degree/Course", "From", "To", "Units", "Year", "Honors"],
-          educationRows.map((row) => [
-            formatExportValue(row.level),
-            formatExportValue(row.schoolName),
-            formatExportValue(row.degreeCourse),
-            formatExportValue(row.attendanceFrom),
-            formatExportValue(row.attendanceTo),
-            formatExportValue(row.highestLevelUnitsEarned),
-            formatExportValue(row.yearGraduated),
-            formatExportValue(row.scholarshipHonors)
-          ]),
-          [58, 112, 92, 44, 44, 45, 45, 68]
+        // ══════════════════════════════════════════════════════════════════
+        //  PAGE 1
+        // ══════════════════════════════════════════════════════════════════
+
+        // ── top meta bar ─────────────────────────────────────────────────
+        const metaH = 8;
+        const csFormW = 38;
+        fillR(ML, y, CW - csFormW, metaH, STRIP_BG);
+        borderR(ML, y, CW - csFormW, metaH);
+        txt("CS Form No. 212", ML, y, CW - csFormW, metaH / 2, 6.5, true, BLACK, "center");
+        txt("Revised 2017", ML, y + metaH / 2, CW - csFormW, metaH / 2, 6, false, DGRAY, "center");
+        vc("Page 1 of 4", ML + CW - csFormW, y, csFormW, metaH, 6);
+        y += metaH;
+
+        // ── title ─────────────────────────────────────────────────────────
+        fillR(ML, y, CW, 7, SEC_BG);
+        borderR(ML, y, CW, 7, 0.2);
+        txt("PERSONAL DATA SHEET", ML, y, CW, 7, 11, true, WHITE, "center");
+        y += 7;
+
+        // ── warning strip ────────────────────────────────────────────────
+        fillR(ML, y, CW, 4.5, STRIP_BG);
+        borderR(ML, y, CW, 4.5);
+        pdf.setFontSize(5); pdf.setFont("helvetica","bold"); pdf.setTextColor(140,0,0);
+        pdf.text(
+          "WARNING: Any misrepresentation made in the Personal Data Sheet and the Work Experience Sheet shall cause the filing of administrative/criminal case/s against the person concerned.",
+          ML + 0.8, y + 2.8, { maxWidth: CW - 1.6 }
         );
+        y += 4.5;
 
-        drawSectionHeader("IV. CIVIL SERVICE ELIGIBILITY");
-        drawGridTable(
-          ["Eligibility", "Rating", "Exam Date", "Exam Place", "License No.", "Validity"],
-          civilServiceRows.map((row) => [
-            formatExportValue(row.eligibility),
-            formatExportValue(row.rating),
-            formatExportValue(row.examDate),
-            formatExportValue(row.examPlace),
-            formatExportValue(row.licenseNumber),
-            formatExportValue(row.licenseValidUntil)
-          ]),
-          [116, 58, 68, 130, 78, 65]
+        // ── instruction strip ────────────────────────────────────────────
+        fillR(ML, y, CW, 3.8, WHITE);
+        borderR(ML, y, CW, 3.8);
+        pdf.setFontSize(5.2); pdf.setFont("helvetica","italic"); pdf.setTextColor(...DGRAY);
+        pdf.text(
+          "Print legibly. Tick appropriate boxes ( ✓ ) and use separate sheet if necessary. Indicate N/A if not applicable. DO NOT ABBREVIATE.",
+          ML + 0.8, y + 2.5, { maxWidth: CW - 1.6 }
         );
+        y += 3.8;
 
-        drawSectionHeader("V. WORK EXPERIENCE");
-        drawGridTable(
-          ["From", "To", "Position Title", "Agency/Company", "Status", "Govt"],
-          workRows.map((row) => [
-            formatExportValue(row.dateFrom),
-            formatExportValue(row.dateTo),
-            formatExportValue(row.positionTitle),
-            formatExportValue(row.departmentAgencyOfficeCompany),
-            formatExportValue(row.statusOfAppointment),
-            row.isGovtService === "Y" ? "Yes" : row.isGovtService === "N" ? "No" : "N/A"
-          ]),
-          [52, 52, 120, 160, 95, 36]
-        );
+        // ══ I. Personal Information ══════════════════════════════════════
+        secHdr("I.", "Personal Information");
 
-        drawSectionHeader("VI. VOLUNTARY WORK");
-        drawGridTable(
-          ["Organization", "From", "To", "Hours", "Position/Nature"],
-          voluntaryRows.map((row) => [
-            formatExportValue(row.organizationNameAddress),
-            formatExportValue(row.dateFrom),
-            formatExportValue(row.dateTo),
-            formatExportValue(row.numberOfHours),
-            formatExportValue(row.positionNatureOfWork)
-          ]),
-          [220, 60, 60, 48, 127]
-        );
+        // row: Surname | First Name | Middle Name | Ext.
+        const nH = 8;
+        const nW = [CW*0.27, CW*0.27, CW*0.27, CW - CW*0.27*3];
+        lvc("1.  SURNAME", np.lastName, ML, y, nW[0], nH);
+        lvc("FIRST NAME", np.firstName, ML+nW[0], y, nW[1], nH);
+        lvc("MIDDLE NAME", np.middleName, ML+nW[0]+nW[1], y, nW[2], nH);
+        lvc("NAME EXTENSION (JR, SR)", np.extensionName, ML+nW[0]+nW[1]+nW[2], y, nW[3], nH);
+        y += nH;
 
-        drawSectionHeader("VII. LEARNING AND DEVELOPMENT (L&D)");
-        drawGridTable(
-          ["Title", "From", "To", "Hours", "Type", "Conducted/Sponsored By"],
-          trainingRows.map((row) => [
-            formatExportValue(row.title),
-            formatExportValue(row.dateFrom),
-            formatExportValue(row.dateTo),
-            formatExportValue(row.numberOfHours),
-            formatExportValue(row.typeOfLd),
-            formatExportValue(row.conductedSponsoredBy)
-          ]),
-          [168, 52, 52, 44, 78, 121]
-        );
+        // row: Date of Birth | Place of Birth (wider)
+        const r2H = 8;
+        lvc("2.  DATE OF BIRTH (mm/dd/yyyy)", applicant.dateOfBirth || "", ML, y, CW*0.3, r2H);
+        lvc("3.  PLACE OF BIRTH", applicant.placeOfBirth || "", ML+CW*0.3, y, CW*0.7, r2H);
+        y += r2H;
 
-        drawSectionHeader("VIII. OTHER INFORMATION");
-        drawGridTable(
-          ["Special Skills/Hobbies", "Non-Academic Distinctions", "Memberships/Organization"],
-          otherInfoRows.map((row) => [
-            formatExportValue(row.specialSkillsHobbies),
-            formatExportValue(row.nonAcademicDistinctionsRecognition),
-            formatExportValue(row.membershipsAssociationOrganization)
-          ]),
-          [170, 170, 175]
-        );
-        drawKeyValueRows([["References", formatExportValue(applicant.referencesInfo)]]);
+        // row: Sex | Civil Status | Height | Weight | Blood Type
+        const r3H = 9;
+        const sexW = CW*0.14, csW2 = CW*0.22, htW = CW*0.14, wtW = CW*0.14, btW = CW - sexW - csW2 - htW - wtW;
 
-        drawSectionHeader("IX. APPLICATIONS");
-        drawGridTable(["Position", "Status", "Date Applied", "Remarks"], applicationRows, [200, 95, 90, 130]);
+        // Sex
+        fillR(ML, y, sexW, r3H, WHITE); borderR(ML, y, sexW, r3H);
+        smallTxt("4.  SEX", ML, y, sexW);
+        const maleX = ML + 1, femX = ML + sexW*0.5;
+        txt((applicant.sex === "Male" ? "✓" : "☐") + " Male", ML, y + r3H*0.38, sexW*0.5, r3H*0.62, 6.5);
+        txt((applicant.sex === "Female" ? "✓" : "☐") + " Female", ML+sexW*0.5, y + r3H*0.38, sexW*0.5, r3H*0.62, 6.5);
 
-        drawSectionHeader("X. SUBMITTED DOCUMENTS");
-        drawGridTable(["Document Name", "Type"], documentRows, [395, 120]);
+        // Civil Status
+        fillR(ML+sexW, y, csW2, r3H, WHITE); borderR(ML+sexW, y, csW2, r3H);
+        smallTxt("5.  CIVIL STATUS", ML+sexW, y, csW2);
+        const stats = ["Single","Married","Widowed","Separated","Other"];
+        const row1S = stats.slice(0,3).map(s => (applicant.civilStatus===s?"✓":"☐")+" "+s).join("  ");
+        const row2S = stats.slice(3).map(s => (applicant.civilStatus===s?"✓":"☐")+" "+s).join("  ");
+        txt(row1S, ML+sexW, y+r3H*0.38, csW2, r3H*0.31, 6);
+        txt(row2S, ML+sexW, y+r3H*0.69, csW2, r3H*0.31, 6);
 
-        pdf.save(`${fileNameBase}.pdf`);
+        lvc("6.  HEIGHT (m)",  applicant.height  || "", ML+sexW+csW2,          y, htW, r3H);
+        lvc("7.  WEIGHT (kg)", applicant.weight  || "", ML+sexW+csW2+htW,      y, wtW, r3H);
+        lvc("8.  BLOOD TYPE",  applicant.bloodType||"", ML+sexW+csW2+htW+wtW, y, btW, r3H);
+        y += r3H;
+
+        // row: Citizenship | Tel | Mobile
+        const r4H = 9;
+        fillR(ML, y, CW*0.5, r4H, WHITE); borderR(ML, y, CW*0.5, r4H);
+        smallTxt("9.  CITIZENSHIP", ML, y, CW*0.5);
+        const isFil  = applicant.citizenship === "Filipino";
+        const isDual = applicant.citizenship === "Dual Citizenship";
+        txt((isFil?"✓":"☐")+" Filipino      "+(isDual?"✓":"☐")+" Dual Citizenship", ML, y+r4H*0.38, CW*0.5, r4H*0.32, 6.5);
+        if (isDual) {
+          const isBirth = /^By Birth/i.test(applicant.citizenshipDetails || "");
+          const isNat   = /^By Naturalization/i.test(applicant.citizenshipDetails || "");
+          const country = (applicant.citizenshipDetails||"").replace(/^By (Birth|Naturalization):\s*/i,"");
+          txt(`${isBirth?"✓":"☐"} By Birth  ${isNat?"✓":"☐"} By Naturalization  Country: ${country}`,
+            ML, y+r4H*0.68, CW*0.5, r4H*0.32, 6);
+        }
+        lvc("10.  TELEPHONE NO.", applicant.telephoneNumber||"", ML+CW*0.5,    y, CW*0.25, r4H);
+        lvc("11.  MOBILE NO.",    applicant.contactNumber  ||"", ML+CW*0.75,   y, CW*0.25, r4H);
+        y += r4H;
+
+        // Residential address
+        lvc("12.  RESIDENTIAL ADDRESS (House/Block/Lot No., Street, Subdivision/Village, Barangay, City/Municipality, Province, Zip Code)",
+            applicant.address||"", ML, y, CW, 7.5);
+        y += 7.5;
+
+        // Permanent address
+        lvc("13.  PERMANENT ADDRESS (House/Block/Lot No., Street, Subdivision/Village, Barangay, City/Municipality, Province, Zip Code)",
+            applicant.permanentAddress||applicant.address||"", ML, y, CW, 7.5);
+        y += 7.5;
+
+        // Email
+        lvc("14.  EMAIL ADDRESS (if any)", applicant.email||"", ML, y, CW, 6.5);
+        y += 6.5;
+
+        // IDs row 1
+        const idH = 6.5, idW = CW/4;
+        lvc("15.  GSIS ID NO.",      applicant.gsisIdNo   ||"", ML,          y, idW, idH);
+        lvc("16.  PAG-IBIG ID NO.",  applicant.pagibigIdNo||"", ML+idW,      y, idW, idH);
+        lvc("17.  PHILHEALTH NO.",   applicant.philhealthNo||"",ML+idW*2,    y, idW, idH);
+        lvc("18.  SSS NO.",          applicant.sssNo      ||"", ML+idW*3,    y, idW, idH);
+        y += idH;
+
+        // IDs row 2
+        const id2W = CW/3;
+        lvc("19.  TIN NO.",             applicant.tinNo         ||"", ML,        y, id2W, idH);
+        lvc("20.  AGENCY EMPLOYEE NO.", applicant.agencyEmployeeNo||"",ML+id2W,  y, id2W, idH);
+        lvc("21.  PHILSYS NO. (PSN)",   applicant.philsysNo     ||"", ML+id2W*2, y, id2W, idH);
+        y += idH;
+
+        // ══ II. Family Background ════════════════════════════════════════
+        // Pre-flight: section header (5.5) + subBar (4.5)*3 + rows (7)*5 +
+        //             children header (5.5) + children rows (5.5)*5 ≈ 85mm
+        // We keep this section together by guarding the full estimated block.
+        const fH = 7;
+        const minCcount = Math.max(children.length, 5);
+        const familyBlockH = 5.5 + (4.5 + fH) + (4.5 + fH) + (4.5 + fH * 2) +
+                             (4.5 + 5.5 + minCcount * 5.5);
+        guard(familyBlockH);
+        secHdr("II.", "Family Background");
+
+        // Spouse
+        subBar("SPOUSE");
+        lvc("22.  SURNAME",      applicant.spouseSurname      ||"", ML,           y, CW*0.26, fH);
+        lvc("FIRST NAME",        applicant.spouseFirstName    ||"", ML+CW*0.26,   y, CW*0.26, fH);
+        lvc("MIDDLE NAME",       applicant.spouseMiddleName   ||"", ML+CW*0.52,   y, CW*0.28, fH);
+        lvc("NAME EXT.",         applicant.spouseNameExtension||"", ML+CW*0.80,   y, CW*0.20, fH);
+        y += fH;
+        lvc("OCCUPATION",                    applicant.spouseOccupation         ||"", ML,           y, CW*0.3,  fH);
+        lvc("EMPLOYER/BUSINESS NAME",        applicant.spouseEmployerBusinessName||"", ML+CW*0.3,    y, CW*0.45, fH);
+        lvc("TELEPHONE NO.",                 applicant.spouseTelephoneNo        ||"", ML+CW*0.75,   y, CW*0.25, fH);
+        y += fH;
+        lvc("BUSINESS ADDRESS", applicant.spouseBusinessAddress||"", ML, y, CW, fH);
+        y += fH;
+
+        // Father
+        subBar("FATHER");
+        lvc("23.  SURNAME",  applicant.fatherSurname      ||"", ML,           y, CW*0.26, fH);
+        lvc("FIRST NAME",    applicant.fatherFirstName    ||"", ML+CW*0.26,   y, CW*0.26, fH);
+        lvc("MIDDLE NAME",   applicant.fatherMiddleName   ||"", ML+CW*0.52,   y, CW*0.28, fH);
+        lvc("NAME EXT.",     applicant.fatherNameExtension||"", ML+CW*0.80,   y, CW*0.20, fH);
+        y += fH;
+
+        // Mother
+        subBar("MOTHER'S MAIDEN NAME");
+        lvc("24.  SURNAME",  applicant.motherSurname  ||"", ML,           y, CW*0.26, fH);
+        lvc("FIRST NAME",    applicant.motherFirstName||"", ML+CW*0.26,   y, CW*0.26, fH);
+        lvc("MIDDLE NAME",   applicant.motherMiddleName||"",ML+CW*0.52,   y, CW*0.48, fH);
+        y += fH;
+
+        // Children — pre-flight the sub-table as a unit
+        const cNameW = CW*0.56, cDobW = CW - cNameW, cRowH = 5.5;
+        const childrenBlockH = 4.5 + cRowH + minCcount * cRowH;
+        guard(childrenBlockH);
+        subBar("25.  NAME OF CHILDREN (Write full name and list all)");
+        tblRow([{w:cNameW,val:"FULL NAME OF CHILDREN (Family Name, First Name, Middle Name)"},{w:cDobW,val:"DATE OF BIRTH (mm/dd/yyyy)"}], cRowH, true);
+        const minC = minCcount;
+        for (let i = 0; i < minC; i++) {
+          const c = children[i] || {fullName:"",dateOfBirth:""};
+          tblRow([{w:cNameW,val:c.fullName||""},{w:cDobW,val:c.dateOfBirth||""}], cRowH);
+        }
+
+        // ══ III. Educational Background ══════════════════════════════════
+        // 5 fixed levels × 6mm rows + 12mm header + 5.5mm section bar = ~47mm
+        const eHdrH = 12;
+        const eduBlockH = 5.5 + eHdrH + 5 * 6;
+        guard(eduBlockH);
+        secHdr("III.", "Educational Background");
+
+        const eW = [CW*0.12, CW*0.22, CW*0.17, CW*0.08, CW*0.08, CW*0.12, CW*0.1, CW-(CW*0.12+CW*0.22+CW*0.17+CW*0.08*2+CW*0.12+CW*0.1)];
+        const eHdrs = ["LEVEL","NAME OF SCHOOL\n(Write in full)","BASIC EDUCATION/\nDEGREE/COURSE\n(Write in full)","FROM","TO","HIGHEST LEVEL/\nUNITS EARNED\n(if not graduated)","YEAR\nGRADUATED","SCHOLARSHIP/\nACADEMIC\nHONORS\nRECEIVED"];
+        let ex = ML;
+        for (let i=0;i<eHdrs.length;i++) { hdr(eHdrs[i], ex, y, eW[i], eHdrH); ex+=eW[i]; }
+        y += eHdrH;
+
+        const eLevels = ["Elementary","Secondary","Vocational / Trade Course","College","Graduate Studies"];
+        for (const lvl of eLevels) {
+          const match = educationRows.find(r => r.level.toLowerCase().startsWith(lvl.toLowerCase().split(" ")[0]));
+          const r = match || {level:lvl,schoolName:"",degreeCourse:"",attendanceFrom:"",attendanceTo:"",highestLevelUnitsEarned:"",yearGraduated:"",scholarshipHonors:""};
+          const vals = [r.level,r.schoolName,r.degreeCourse,r.attendanceFrom,r.attendanceTo,r.highestLevelUnitsEarned,r.yearGraduated,r.scholarshipHonors];
+          let ex2 = ML;
+          for (let i=0;i<eW.length;i++) { vc(vals[i]||"", ex2, y, eW[i], 6); ex2+=eW[i]; }
+          y += 6;
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        //  PAGE 2
+        // ══════════════════════════════════════════════════════════════════
+        newPage();
+        fillR(ML, y, CW, 5, SEC_BG);
+        txt("PERSONAL DATA SHEET  (Continuation — Page 2)", ML, y, CW, 5, 8, true, WHITE, "center");
+        y += 5;
+
+        // ══ IV. Civil Service Eligibility ════════════════════════════════
+        secHdr("IV.", "Civil Service Eligibility");
+
+        const csW3 = [CW*0.30, CW*0.10, CW*0.13, CW*0.22, CW*0.13, CW-(CW*0.30+CW*0.10+CW*0.13+CW*0.22+CW*0.13)];
+        const csHdrs = [
+          "CAREER SERVICE/ RA 1080 (BOARD/BAR) UNDER SPECIAL LAWS/CES/CSEE BARED EXAMINATIONS/DRIVER'S LICENSE",
+          "RATING\n(If Applicable)",
+          "DATE OF\nEXAMINATION/\nCONFERMENT",
+          "PLACE OF\nEXAMINATION/\nCONFERMENT",
+          "LICENSE\n(if Applicable)\nNUMBER",
+          "DATE OF\nVALIDITY"
+        ];
+        const csHdrH = 11;
+        let csx = ML;
+        for (let i=0;i<csHdrs.length;i++) { hdr(csHdrs[i], csx, y, csW3[i], csHdrH); csx+=csW3[i]; }
+        y += csHdrH;
+
+        const minCS = Math.max(civilServiceRows.length, 4);
+        for (let i=0;i<minCS;i++) {
+          const r = civilServiceRows[i] || {eligibility:"",rating:"",examDate:"",examPlace:"",licenseNumber:"",licenseValidUntil:""};
+          const vals = [r.eligibility,r.rating,r.examDate,r.examPlace,r.licenseNumber,r.licenseValidUntil];
+          guard(6); let cx2=ML;
+          for (let j=0;j<csW3.length;j++) { vc(vals[j]||"",cx2,y,csW3[j],6); cx2+=csW3[j]; }
+          y+=6;
+        }
+
+        // ══ V. Work Experience ═══════════════════════════════════════════
+        guard(30);
+        secHdr("V.", "Work Experience");
+        pdf.setFontSize(5); pdf.setFont("helvetica","italic"); pdf.setTextColor(60,60,60);
+        pdf.text("(Include private employment. Start from your recent work) Description of duties should be indicated in the attached Work Experience Sheet.",
+          ML+0.8, y-0.5, {maxWidth:CW-1.6});
+
+        const weW = [CW*0.10, CW*0.10, CW*0.22, CW*0.28, CW*0.10, CW*0.12, CW-(CW*0.10*2+CW*0.22+CW*0.28+CW*0.10+CW*0.12)];
+        const weHdrs = ["INCLUSIVE\nDATES FROM","INCLUSIVE\nDATES TO","POSITION TITLE\n(Write in full/\nDo not abbreviate)","DEPARTMENT/AGENCY/OFFICE/\nCOMPANY (Write in full/\nDo not abbreviate)","MONTHLY\nSALARY","STATUS OF\nAPPOINTMENT","GOV'T\nSERVICE\n(Y/N)"];
+        const weHdrH = 12;
+        let wex = ML;
+        for (let i=0;i<weHdrs.length;i++) { hdr(weHdrs[i], wex, y, weW[i], weHdrH); wex+=weW[i]; }
+        y += weHdrH;
+
+        const minWe = Math.max(workRows.length, 7);
+        for (let i=0;i<minWe;i++) {
+          const r = workRows[i] || {dateFrom:"",dateTo:"",positionTitle:"",departmentAgencyOfficeCompany:"",statusOfAppointment:"",isGovtService:"" as ""};
+          const govtVal = r.isGovtService === "Y" ? "Y" : r.isGovtService === "N" ? "N" : "";
+          const vals = [r.dateFrom,r.dateTo,r.positionTitle,r.departmentAgencyOfficeCompany,"",r.statusOfAppointment,govtVal];
+          guard(6); let wx2=ML;
+          for (let j=0;j<weW.length;j++) { vc(vals[j]||"",wx2,y,weW[j],6); wx2+=weW[j]; }
+          y+=6;
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        //  PAGE 3
+        // ══════════════════════════════════════════════════════════════════
+        newPage();
+        fillR(ML, y, CW, 5, SEC_BG);
+        txt("PERSONAL DATA SHEET  (Continuation — Page 3)", ML, y, CW, 5, 8, true, WHITE, "center");
+        y += 5;
+
+        // ══ VI. Voluntary Work ═══════════════════════════════════════════
+        secHdr("VI.", "Voluntary Work or Involvement in Civic / Non-Government / People / Voluntary Organization/s");
+
+        const vwW = [CW*0.38, CW*0.12, CW*0.12, CW*0.10, CW-(CW*0.38+CW*0.12*2+CW*0.10)];
+        const vwHdrs = ["NAME & ADDRESS OF ORGANIZATION\n(Write in full)","INCLUSIVE\nDATES FROM","INCLUSIVE\nDATES TO","NUMBER\nOF HOURS","POSITION/\nNATURE OF WORK"];
+        const vwHdrH = 9;
+        let vx = ML;
+        for (let i=0;i<vwHdrs.length;i++) { hdr(vwHdrs[i],vx,y,vwW[i],vwHdrH); vx+=vwW[i]; }
+        y += vwHdrH;
+
+        const minVw = Math.max(voluntaryRows.length, 4);
+        for (let i=0;i<minVw;i++) {
+          const r = voluntaryRows[i] || {organizationNameAddress:"",dateFrom:"",dateTo:"",numberOfHours:"",positionNatureOfWork:""};
+          const vals = [r.organizationNameAddress,r.dateFrom,r.dateTo,r.numberOfHours,r.positionNatureOfWork];
+          guard(6); let vx2=ML;
+          for (let j=0;j<vwW.length;j++) { vc(vals[j]||"",vx2,y,vwW[j],6); vx2+=vwW[j]; }
+          y+=6;
+        }
+
+        // ══ VII. L&D / Training ══════════════════════════════════════════
+        guard(30);
+        secHdr("VII.", "Learning and Development (L&D) Interventions/Training Programs Attended");
+        pdf.setFontSize(5); pdf.setFont("helvetica","italic"); pdf.setTextColor(60,60,60);
+        pdf.text("(Start from the most recent L&D/Training Program and include only the relevant L&D/Training taken for the last five (5) years for Division Chief/Executive/Managerial positions)",
+          ML+0.8, y-0.5, {maxWidth:CW-1.6});
+
+        const ldW = [CW*0.32, CW*0.10, CW*0.10, CW*0.09, CW*0.14, CW-(CW*0.32+CW*0.10*2+CW*0.09+CW*0.14)];
+        const ldHdrs = ["TITLE OF LEARNING AND DEVELOPMENT\nINTERVENTION/TRAINING PROGRAM","INCLUSIVE\nDATES\nFROM","INCLUSIVE\nDATES\nTO","NUMBER\nOF\nHOURS","TYPE OF LD\n(Managerial/\nSupervisory/\nTechnical/etc)","CONDUCTED/\nSPONSORED\nBY"];
+        const ldHdrH = 12;
+        let ldx = ML;
+        for (let i=0;i<ldHdrs.length;i++) { hdr(ldHdrs[i],ldx,y,ldW[i],ldHdrH); ldx+=ldW[i]; }
+        y += ldHdrH;
+
+        const minLd = Math.max(trainingRows.length, 5);
+        for (let i=0;i<minLd;i++) {
+          const r = trainingRows[i] || {title:"",dateFrom:"",dateTo:"",numberOfHours:"",typeOfLd:"",conductedSponsoredBy:""};
+          const vals = [r.title,r.dateFrom,r.dateTo,r.numberOfHours,r.typeOfLd,r.conductedSponsoredBy];
+          guard(6); let lx2=ML;
+          for (let j=0;j<ldW.length;j++) { vc(vals[j]||"",lx2,y,ldW[j],6); lx2+=ldW[j]; }
+          y+=6;
+        }
+
+        // ══ VIII. Other Information ══════════════════════════════════════
+        guard(25);
+        secHdr("VIII.", "Other Information");
+
+        const oiW = [CW/3, CW/3, CW - CW/3*2];
+        const oiHdrs = ["34.  SPECIAL SKILLS and HOBBIES","35.  NON-ACADEMIC DISTINCTIONS/\nRECOGNITION (Write in full)","36.  MEMBERSHIP IN ASSOCIATION/\nORGANIZATION (Write in full)"];
+        const oiHdrH = 8;
+        let oix = ML;
+        for (let i=0;i<oiHdrs.length;i++) { hdr(oiHdrs[i],oix,y,oiW[i],oiHdrH); oix+=oiW[i]; }
+        y += oiHdrH;
+
+        const minOi = Math.max(otherInfoRows.length, 4);
+        for (let i=0;i<minOi;i++) {
+          const r = otherInfoRows[i] || {specialSkillsHobbies:"",nonAcademicDistinctionsRecognition:"",membershipsAssociationOrganization:""};
+          const vals = [r.specialSkillsHobbies,r.nonAcademicDistinctionsRecognition,r.membershipsAssociationOrganization];
+          guard(6); let ox2=ML;
+          for (let j=0;j<oiW.length;j++) { vc(vals[j]||"",ox2,y,oiW[j],6); ox2+=oiW[j]; }
+          y+=6;
+        }
+
+        // ══ 37. References ════════════════════════════════════════════════
+        guard(28);
+        secHdr("37.", "References (Person not related by consanguinity or affinity to applicant/appointee)");
+
+        const refW = [CW*0.40, CW*0.35, CW - CW*0.40 - CW*0.35];
+        tblRow([{w:refW[0],val:"NAME"},{w:refW[1],val:"ADDRESS"},{w:refW[2],val:"TEL. NO."}], 6, true);
+
+        const refLines = (applicant.referencesInfo||"").split("\n").filter(Boolean);
+        const minRef = Math.max(refLines.length, 3);
+        for (let i=0;i<minRef;i++) {
+          const parts = (refLines[i]||"").split("|");
+          tblRow([{w:refW[0],val:parts[0]||""},{w:refW[1],val:parts[1]||""},{w:refW[2],val:parts[2]||""}], 6);
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        //  PAGE 4  — Declaration & Signature
+        // ══════════════════════════════════════════════════════════════════
+        newPage();
+        fillR(ML, y, CW, 5, SEC_BG);
+        txt("PERSONAL DATA SHEET  (Continuation — Page 4)", ML, y, CW, 5, 8, true, WHITE, "center");
+        y += 5 + 3;
+
+        // Declaration
+        const declH = 22;
+        fillR(ML, y, CW, declH, WHITE); borderR(ML, y, CW, declH, 0.3);
+        pdf.setFontSize(6.5); pdf.setFont("helvetica","normal"); pdf.setTextColor(0,0,0);
+        const decl =
+          "I declare under oath that I have personally accomplished this Personal Data Sheet which is a true, " +
+          "correct and complete statement pursuant to the provisions of pertinent laws, rules and regulations of " +
+          "the Republic of the Philippines. I authorize the agency head/authorized representative to verify/validate " +
+          "the contents stated herein. I agree that any misrepresentation made in this document and its attachments " +
+          "shall cause the filing of administrative/criminal case/s against me.";
+        const declLines = pdf.splitTextToSize(decl, CW - 4);
+        pdf.text(declLines, ML + 2, y + 4);
+        y += declH + 4;
+
+        // Signature block
+        const sigH = 22;
+        const sigW = CW / 2;
+
+        // Left: Applicant signature
+        fillR(ML, y, sigW, sigH, WHITE); borderR(ML, y, sigW, sigH, 0.3);
+        txt("Signature", ML, y + sigH - 7, sigW, 5, 6.5, false, BLACK, "center");
+        // signature line
+        pdf.setDrawColor(...DGRAY); pdf.setLineWidth(0.3);
+        pdf.line(ML+6, y + sigH - 8, ML + sigW - 6, y + sigH - 8);
+        txt("Date", ML, y + sigH - 2.5, sigW/2, 5, 6.5, false, BLACK, "center");
+        pdf.line(ML + sigW/2 + 2, y + sigH - 3.5, ML + sigW - 4, y + sigH - 3.5);
+
+        // Right: Administering officer
+        fillR(ML + sigW, y, sigW, sigH, WHITE); borderR(ML + sigW, y, sigW, sigH, 0.3);
+        pdf.setFontSize(6); pdf.setFont("helvetica","normal"); pdf.setTextColor(0,0,0);
+        const sworn = "SUBSCRIBED AND SWORN to before me this ___ day of ______________, ______ at _________________________, Philippines.";
+        const swornLines = pdf.splitTextToSize(sworn, sigW - 4);
+        pdf.text(swornLines, ML + sigW + 2, y + 5);
+        txt("Administering Officer", ML + sigW, y + sigH - 7, sigW, 5, 6.5, false, BLACK, "center");
+        pdf.line(ML + sigW + 4, y + sigH - 8, ML + CW - 4, y + sigH - 8);
+        y += sigH;
+
+        // ── footer on every page ──────────────────────────────────────────
+        const pageCount = (pdf.internal as any).getNumberOfPages();
+        for (let p = 1; p <= pageCount; p++) {
+          pdf.setPage(p);
+          pdf.setFontSize(5.5);
+          pdf.setFont("helvetica","normal");
+          pdf.setTextColor(100,100,100);
+          pdf.text(
+            `CS Form No. 212 (Revised 2017)  |  Page ${p} of ${pageCount}  |  Generated: ${new Date().toLocaleDateString()}  |  ${applicant.fullName || ""}`,
+            ML, PH - 4
+          );
+        }
+
+        pdf.save(`${fileNameBase}_PDS.pdf`);
+
+      // ════════════════════════════════════════════════════════════════════
+      //  DOCX — clean structured format (unchanged)
+      // ════════════════════════════════════════════════════════════════════
       } else {
         const {
-          AlignmentType,
-          BorderStyle,
-          Document,
-          HeadingLevel,
-          Packer,
-          Paragraph,
-          ShadingType,
-          Table,
-          TableCell,
-          TableRow,
-          TextRun,
-          WidthType
+          AlignmentType, Document, HeadingLevel, Packer,
+          Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType
         } = await import("docx");
 
-        const buildHeading = (title: string) =>
+        const mkHeading = (title: string) =>
           new Paragraph({
             heading: HeadingLevel.HEADING_2,
             spacing: { before: 180, after: 90 },
             children: [new TextRun({ text: title, bold: true })]
           });
 
-        const buildKeyValueTable = (rows: Array<[string, string]>) =>
+        const mkKV = (rows: Array<[string, string]>) =>
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: rows.map(([label, value]) =>
-              new TableRow({
-                children: [
-                  new TableCell({
-                    width: { size: 35, type: WidthType.PERCENTAGE },
-                    children: [new Paragraph({ children: [new TextRun({ text: label, bold: true })] })]
-                  }),
-                  new TableCell({
-                    width: { size: 65, type: WidthType.PERCENTAGE },
-                    children: [new Paragraph(formatExportValue(value))]
-                  })
-                ]
-              })
+            rows: rows.map(([lbl, val]) =>
+              new TableRow({ children: [
+                new TableCell({ width:{size:35,type:WidthType.PERCENTAGE}, children:[new Paragraph({children:[new TextRun({text:lbl,bold:true})]})] }),
+                new TableCell({ width:{size:65,type:WidthType.PERCENTAGE}, children:[new Paragraph(formatExportValue(val))] })
+              ]})
             )
           });
 
-        const buildGridTable = (headers: string[], rows: string[][]) =>
+        const mkGrid = (headers: string[], rows: string[][]) =>
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
             rows: [
-              new TableRow({
-                children: headers.map((header) =>
-                  new TableCell({
-                    shading: { fill: "EDEDED", type: ShadingType.CLEAR, color: "auto" },
-                    children: [new Paragraph({ children: [new TextRun({ text: header, bold: true })] })]
-                  })
-                )
-              }),
+              new TableRow({ children: headers.map(h =>
+                new TableCell({ shading:{fill:"BEDCEB",type:ShadingType.CLEAR,color:"auto"}, children:[new Paragraph({children:[new TextRun({text:h,bold:true})]})] })
+              )}),
               ...(rows.length > 0
-                ? rows.map((row) =>
-                    new TableRow({
-                      children: row.map((cell) => new TableCell({ children: [new Paragraph(formatExportValue(cell))] }))
-                    })
-                  )
-                : [
-                    new TableRow({
-                      children: headers.map((_, index) =>
-                        new TableCell({ children: [new Paragraph(index === 0 ? "No records" : "")] })
-                      )
-                    })
-                  ])
+                ? rows.map(row => new TableRow({ children: row.map(c => new TableCell({children:[new Paragraph(formatExportValue(c))]})) }))
+                : [new TableRow({ children: headers.map((_,i) => new TableCell({children:[new Paragraph(i===0?"No records":"")]})) })]
+              )
             ]
           });
 
-        const doc = new Document({
-          sections: [
-            {
-              children: [
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { after: 120 },
-                  children: [new TextRun({ text: "PERSONAL DATA SHEET", bold: true, size: 30 })]
-                }),
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun(`Generated: ${new Date().toLocaleString()}`)] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 180 }, children: [new TextRun(`Applicant: ${applicant.fullName || "N/A"}`)] }),
-
-                buildHeading("I. Personal Information"),
-                buildKeyValueTable(personalRows),
-
-                buildHeading("II. Family Background"),
-                buildKeyValueTable(familyRows),
-
-                buildHeading("III. Educational Background"),
-                buildGridTable(
-                  ["Level", "School", "Degree/Course", "From", "To", "Units", "Year", "Honors"],
-                  educationRows.map((row) => [
-                    formatExportValue(row.level),
-                    formatExportValue(row.schoolName),
-                    formatExportValue(row.degreeCourse),
-                    formatExportValue(row.attendanceFrom),
-                    formatExportValue(row.attendanceTo),
-                    formatExportValue(row.highestLevelUnitsEarned),
-                    formatExportValue(row.yearGraduated),
-                    formatExportValue(row.scholarshipHonors)
-                  ])
-                ),
-
-                buildHeading("IV. Civil Service Eligibility"),
-                buildGridTable(
-                  ["Eligibility", "Rating", "Exam Date", "Exam Place", "License No.", "Validity"],
-                  civilServiceRows.map((row) => [
-                    formatExportValue(row.eligibility),
-                    formatExportValue(row.rating),
-                    formatExportValue(row.examDate),
-                    formatExportValue(row.examPlace),
-                    formatExportValue(row.licenseNumber),
-                    formatExportValue(row.licenseValidUntil)
-                  ])
-                ),
-
-                buildHeading("V. Work Experience"),
-                buildGridTable(
-                  ["From", "To", "Position Title", "Agency/Company", "Status", "Govt"],
-                  workRows.map((row) => [
-                    formatExportValue(row.dateFrom),
-                    formatExportValue(row.dateTo),
-                    formatExportValue(row.positionTitle),
-                    formatExportValue(row.departmentAgencyOfficeCompany),
-                    formatExportValue(row.statusOfAppointment),
-                    row.isGovtService === "Y" ? "Yes" : row.isGovtService === "N" ? "No" : "N/A"
-                  ])
-                ),
-
-                buildHeading("VI. Voluntary Work"),
-                buildGridTable(
-                  ["Organization", "From", "To", "Hours", "Position/Nature"],
-                  voluntaryRows.map((row) => [
-                    formatExportValue(row.organizationNameAddress),
-                    formatExportValue(row.dateFrom),
-                    formatExportValue(row.dateTo),
-                    formatExportValue(row.numberOfHours),
-                    formatExportValue(row.positionNatureOfWork)
-                  ])
-                ),
-
-                buildHeading("VII. Learning and Development (L&D)"),
-                buildGridTable(
-                  ["Title", "From", "To", "Hours", "Type", "Conducted/Sponsored"],
-                  trainingRows.map((row) => [
-                    formatExportValue(row.title),
-                    formatExportValue(row.dateFrom),
-                    formatExportValue(row.dateTo),
-                    formatExportValue(row.numberOfHours),
-                    formatExportValue(row.typeOfLd),
-                    formatExportValue(row.conductedSponsoredBy)
-                  ])
-                ),
-
-                buildHeading("VIII. Other Information"),
-                buildGridTable(
-                  ["Special Skills/Hobbies", "Non-Academic Distinctions", "Memberships/Organization"],
-                  otherInfoRows.map((row) => [
-                    formatExportValue(row.specialSkillsHobbies),
-                    formatExportValue(row.nonAcademicDistinctionsRecognition),
-                    formatExportValue(row.membershipsAssociationOrganization)
-                  ])
-                ),
-                buildKeyValueTable([["References", formatExportValue(applicant.referencesInfo)]]),
-
-                buildHeading("IX. Applications"),
-                buildGridTable(["Position", "Status", "Date Applied", "Remarks"], applicationRows),
-
-                buildHeading("X. Submitted Documents"),
-                buildGridTable(["Document Name", "Type"], documentRows)
-              ]
-            }
-          ]
+        const applicationRows = relatedApplications.map(app => {
+          const vac = jobVacancies.find(v => v.id === app.vacancyId);
+          return [formatExportValue(vac?.positionTitle), formatExportValue(app.status), formatExportValue(app.dateApplied), formatExportValue(app.remarks)];
         });
+        const documentRows = applicantDocuments.map(d => [formatExportValue(d.originalName), formatExportValue(d.docType)]);
+
+        const doc = new Document({ sections: [{ children: [
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing:{after:40}, children:[new TextRun({text:"CS Form No. 212 (Revised 2017)",size:18})] }),
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing:{after:120}, children:[new TextRun({text:"PERSONAL DATA SHEET",bold:true,size:30})] }),
+          new Paragraph({ alignment: AlignmentType.CENTER, children:[new TextRun(`Generated: ${new Date().toLocaleString()}`)] }),
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing:{after:180}, children:[new TextRun(`Applicant: ${applicant.fullName||"N/A"}`)] }),
+
+          mkHeading("I. Personal Information"),
+          mkKV([
+            ["Surname / First / Middle / Extension", formatExportValue(applicant.fullName)],
+            ["Date of Birth", formatExportValue(applicant.dateOfBirth)],
+            ["Place of Birth", formatExportValue(applicant.placeOfBirth)],
+            ["Sex", formatExportValue(applicant.sex)],
+            ["Civil Status", formatExportValue(applicant.civilStatus)],
+            ["Citizenship", formatExportValue(applicant.citizenship)],
+            ["Citizenship Details", formatExportValue(applicant.citizenshipDetails)],
+            ["Height / Weight / Blood Type", `${formatExportValue(applicant.height)} / ${formatExportValue(applicant.weight)} / ${formatExportValue(applicant.bloodType)}`],
+            ["Address", formatExportValue(applicant.address)],
+            ["Permanent Address", formatExportValue(applicant.permanentAddress)],
+            ["Telephone / Mobile / Email", `${formatExportValue(applicant.telephoneNumber)} / ${formatExportValue(applicant.contactNumber)} / ${formatExportValue(applicant.email)}`],
+            ["GSIS / PAG-IBIG / PHILHEALTH", `${formatExportValue(applicant.gsisIdNo)} / ${formatExportValue(applicant.pagibigIdNo)} / ${formatExportValue(applicant.philhealthNo)}`],
+            ["PhilSys / SSS / TIN / Agency No.", `${formatExportValue(applicant.philsysNo)} / ${formatExportValue(applicant.sssNo)} / ${formatExportValue(applicant.tinNo)} / ${formatExportValue(applicant.agencyEmployeeNo)}`]
+          ]),
+          mkHeading("II. Family Background"),
+          mkKV([
+            ["Spouse Name", formatExportValue([applicant.spouseSurname,applicant.spouseFirstName,applicant.spouseMiddleName,applicant.spouseNameExtension].filter(Boolean).join(" "))],
+            ["Spouse Occupation", formatExportValue(applicant.spouseOccupation)],
+            ["Spouse Employer/Business", formatExportValue(applicant.spouseEmployerBusinessName)],
+            ["Spouse Business Address", formatExportValue(applicant.spouseBusinessAddress)],
+            ["Spouse Telephone", formatExportValue(applicant.spouseTelephoneNo)],
+            ["Father Name", formatExportValue([applicant.fatherSurname,applicant.fatherFirstName,applicant.fatherMiddleName,applicant.fatherNameExtension].filter(Boolean).join(" "))],
+            ["Mother Maiden Name", formatExportValue([applicant.motherSurname,applicant.motherFirstName,applicant.motherMiddleName].filter(Boolean).join(" "))]
+          ]),
+          mkHeading("III. Educational Background"),
+          mkGrid(["Level","School","Degree/Course","From","To","Units Earned","Year Graduated","Honors/Scholarship"],
+            educationRows.map(r=>[r.level,r.schoolName,r.degreeCourse,r.attendanceFrom,r.attendanceTo,r.highestLevelUnitsEarned,r.yearGraduated,r.scholarshipHonors].map(formatExportValue))
+          ),
+          mkHeading("IV. Civil Service Eligibility"),
+          mkGrid(["Eligibility","Rating","Exam Date","Exam Place","License No.","Date of Validity"],
+            civilServiceRows.map(r=>[r.eligibility,r.rating,r.examDate,r.examPlace,r.licenseNumber,r.licenseValidUntil].map(formatExportValue))
+          ),
+          mkHeading("V. Work Experience"),
+          mkGrid(["From","To","Position Title","Agency/Company","Monthly Salary","Status of Appointment","Gov't Service (Y/N)"],
+            workRows.map(r=>[r.dateFrom,r.dateTo,r.positionTitle,r.departmentAgencyOfficeCompany,"",r.statusOfAppointment,r.isGovtService==="Y"?"Yes":r.isGovtService==="N"?"No":"N/A"].map(formatExportValue))
+          ),
+          mkHeading("VI. Voluntary Work"),
+          mkGrid(["Organization Name/Address","From","To","No. of Hours","Position/Nature of Work"],
+            voluntaryRows.map(r=>[r.organizationNameAddress,r.dateFrom,r.dateTo,r.numberOfHours,r.positionNatureOfWork].map(formatExportValue))
+          ),
+          mkHeading("VII. Learning and Development (L&D)"),
+          mkGrid(["Title","From","To","No. of Hours","Type of L&D","Conducted/Sponsored By"],
+            trainingRows.map(r=>[r.title,r.dateFrom,r.dateTo,r.numberOfHours,r.typeOfLd,r.conductedSponsoredBy].map(formatExportValue))
+          ),
+          mkHeading("VIII. Other Information"),
+          mkGrid(["Special Skills/Hobbies","Non-Academic Distinctions/Recognition","Memberships/Organization"],
+            otherInfoRows.map(r=>[r.specialSkillsHobbies,r.nonAcademicDistinctionsRecognition,r.membershipsAssociationOrganization].map(formatExportValue))
+          ),
+          mkKV([["References", formatExportValue(applicant.referencesInfo)]]),
+          mkHeading("IX. Applications"),
+          mkGrid(["Position","Status","Date Applied","Remarks"], applicationRows),
+          mkHeading("X. Submitted Documents"),
+          mkGrid(["Document Name","Type"], documentRows)
+        ]}]});
 
         const blob = await Packer.toBlob(doc);
-        const url = URL.createObjectURL(blob);
+        const url  = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `${fileNameBase}.docx`;
+        link.download = `${fileNameBase}_PDS.docx`;
         link.click();
         URL.revokeObjectURL(url);
       }
 
-      toast({ title: "Export complete", description: `Applicant exported as ${format.toUpperCase()} successfully.` });
+      toast({ title: "Export complete", description: `PDS exported as ${format.toUpperCase()} successfully.` });
     } catch (error) {
-      toast({
-        title: "Export failed",
-        description: (error as Error).message,
-        variant: "destructive"
-      });
+      toast({ title: "Export failed", description: (error as Error).message, variant: "destructive" });
     } finally {
       setIsExportingApplicant(false);
     }
@@ -2085,17 +2312,7 @@ export default function Applicants() {
 
   const openEditApplicant = (applicant: Applicant) => {
     setEditingApplicantId(applicant.id);
-    let parsedDualType: "" | "By Birth" | "By Naturalization" = "";
-    let parsedDualDetails = applicant.citizenshipDetails || "";
-    if (/^By Birth:\s*/i.test(parsedDualDetails)) {
-      parsedDualType = "By Birth";
-      parsedDualDetails = parsedDualDetails.replace(/^By Birth:\s*/i, "");
-    } else if (/^By Naturalization:\s*/i.test(parsedDualDetails)) {
-      parsedDualType = "By Naturalization";
-      parsedDualDetails = parsedDualDetails.replace(/^By Naturalization:\s*/i, "");
-    }
-
-    setFormState({
+    setEditFormState({
       fullName: applicant.fullName,
       contactNumber: applicant.contactNumber,
       telephoneNumber: applicant.telephoneNumber,
@@ -2114,7 +2331,7 @@ export default function Applicants() {
       philsysNo: applicant.philsysNo,
       pagibigIdNo: applicant.pagibigIdNo,
       philhealthNo: applicant.philhealthNo,
-      citizenshipDetails: parsedDualDetails,
+      citizenshipDetails: applicant.citizenshipDetails,
       sssNo: applicant.sssNo,
       tinNo: applicant.tinNo,
       agencyEmployeeNo: applicant.agencyEmployeeNo,
@@ -2145,25 +2362,8 @@ export default function Applicants() {
       educationalBackground: applicant.educationalBackground,
       workExperience: applicant.workExperience
     });
-    setNameParts(splitFullName(applicant.fullName));
-    setAddressParts({
-      regionCode: "",
-      cityCode: "",
-      barangayCode: "",
-      streetAddress: applicant.address
-    });
-    setDualCitizenshipType(applicant.citizenship === "Dual Citizenship" ? parsedDualType : "");
-    setChildrenEntries(parseChildrenInfo(applicant.childrenInfo));
-    setEducationEntries(parseEducationalBackground(applicant.educationalBackground));
-    setCivilServiceEntries(parseCivilServiceEligibility(applicant.civilServiceEligibility));
-    setWorkExperienceEntries(parseWorkExperience(applicant.workExperience));
-    setVoluntaryWorkEntries(parseVoluntaryWork(applicant.voluntaryWork));
-    setTrainingEntries(parseTrainings(applicant.trainings));
-    setOtherInfoEntries(parseOtherInfo(applicant.otherInfo));
-    setDocuments({ resume: null, transcript: null, certificates: [] });
-    setCreateSectionIndex(0);
-    setShowCreate(true);
-    setShowEdit(false);
+    setEditDocuments({ resume: null, transcript: null, certificates: [] });
+    setShowEdit(true);
   };
 
   const openApplicantApplicationForm = (applicantId: string) => {
@@ -2236,25 +2436,16 @@ export default function Applicants() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({
-      id,
-      payload,
-      files
-    }: {
-      id: string;
-      payload: typeof editFormState;
-      files?: { resume: File | null; transcript: File | null; certificates: File[] };
-    }) => {
+    mutationFn: async ({ id, payload }: { id: string; payload: typeof editFormState }) => {
       await updateApplicant(id, payload);
-      const uploadFiles = files ?? editDocuments;
       const uploads: Array<Promise<unknown>> = [];
-      if (uploadFiles.resume) {
-        uploads.push(uploadApplicantDocument(id, "pds", uploadFiles.resume));
+      if (editDocuments.resume) {
+        uploads.push(uploadApplicantDocument(id, "pds", editDocuments.resume));
       }
-      if (uploadFiles.transcript) {
-        uploads.push(uploadApplicantDocument(id, "transcript", uploadFiles.transcript));
+      if (editDocuments.transcript) {
+        uploads.push(uploadApplicantDocument(id, "transcript", editDocuments.transcript));
       }
-      uploadFiles.certificates.forEach((cert, idx) => {
+      editDocuments.certificates.forEach((cert, idx) => {
         uploads.push(uploadApplicantDocument(id, `certificate_${idx + 1}`, cert));
       });
       if (uploads.length > 0) {
@@ -2265,10 +2456,8 @@ export default function Applicants() {
       queryClient.invalidateQueries({ queryKey: ["applicants"] });
       queryClient.invalidateQueries({ queryKey: ["applicant-documents-edit"] });
       setShowEdit(false);
-      setShowCreate(false);
       setEditingApplicantId(null);
       setEditDocuments({ resume: null, transcript: null, certificates: [] });
-      resetCreateForm();
       toast({ title: "Applicant updated", description: "Changes saved." });
     },
     onError: (error) => {
@@ -2303,7 +2492,6 @@ export default function Applicants() {
             setShowCreate(open);
             setCreateSectionIndex(0);
             if (!open) {
-              setEditingApplicantId(null);
               resetCreateForm();
             }
           }}
@@ -2312,10 +2500,8 @@ export default function Applicants() {
             <Button><Plus className="w-4 h-4 mr-2" /> Add Applicant</Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>{editingApplicantId ? "Edit Applicant" : "Add New Applicant"}</DialogTitle></DialogHeader>
-            <form
-              className={`space-y-4 ${!editingApplicantId ? "[&_[id='create-section-1']_label:not(.no-required-mark)]:after:content-['*'] [&_[id='create-section-1']_label:not(.no-required-mark)]:after:ml-1 [&_[id='create-section-1']_label:not(.no-required-mark)]:after:text-red-500 [&_[id='create-section-2']_label:not(.no-required-mark)]:after:content-['*'] [&_[id='create-section-2']_label:not(.no-required-mark)]:after:ml-1 [&_[id='create-section-2']_label:not(.no-required-mark)]:after:text-red-500 [&_[id='create-section-3']_label:not(.no-required-mark)]:after:content-['*'] [&_[id='create-section-3']_label:not(.no-required-mark)]:after:ml-1 [&_[id='create-section-3']_label:not(.no-required-mark)]:after:text-red-500" : ""}`}
-              onSubmit={(e) => {
+            <DialogHeader><DialogTitle>Add New Applicant</DialogTitle></DialogHeader>
+            <form className="space-y-4" onSubmit={(e) => {
               e.preventDefault();
 
               if (!nameParts.firstName.trim() || !nameParts.lastName.trim()) {
@@ -2344,7 +2530,7 @@ export default function Applicants() {
               }
 
               if (!formState.sex) {
-                toast({ title: "Missing gender", description: "Select gender.", variant: "destructive" });
+                toast({ title: "Missing sex at birth", description: "Select sex at birth.", variant: "destructive" });
                 return;
               }
 
@@ -2386,7 +2572,7 @@ export default function Applicants() {
               const trainings = serializeTrainings(trainingEntries);
               const otherInfo = serializeOtherInfo(otherInfoEntries);
 
-              const payload = {
+              createMutation.mutate({
                 fullName,
                 contactNumber: formState.contactNumber,
                 telephoneNumber: formState.telephoneNumber,
@@ -2435,13 +2621,7 @@ export default function Applicants() {
                 referencesInfo: formState.referencesInfo,
                 educationalBackground,
                 workExperience
-              };
-
-              if (editingApplicantId) {
-                updateMutation.mutate({ id: editingApplicantId, payload, files: documents });
-              } else {
-                createMutation.mutate(payload);
-              }
+              });
             }}>
               <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
                 <span className="text-muted-foreground">Section {createSectionIndex + 1} of {createSectionIds.length}: {createSectionTitles[createSectionIndex]}</span>
@@ -2497,7 +2677,7 @@ export default function Applicants() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="no-required-mark">Telephone No.</Label>
+                  <Label>Telephone No.</Label>
                   <Input
                     placeholder="(Optional landline)"
                     inputMode="numeric"
@@ -2533,9 +2713,9 @@ export default function Applicants() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Gender</Label>
+                  <Label>Sex at Birth</Label>
                   <Select value={formState.sex || undefined} onValueChange={(value) => setFormState((prev) => ({ ...prev, sex: value }))}>
-                    <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Select sex" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Male">Male</SelectItem>
                       <SelectItem value="Female">Female</SelectItem>
@@ -2561,7 +2741,7 @@ export default function Applicants() {
                 <div className="space-y-2">
                   <Label>Citizenship</Label>
                   <div className="space-y-3 rounded-md border border-border/60 px-3 py-3">
-                    <label className="no-required-mark flex items-center gap-2 text-sm">
+                    <label className="flex items-center gap-2 text-sm">
                       <input
                         type="radio"
                         name="citizenship"
@@ -2573,7 +2753,7 @@ export default function Applicants() {
                       />
                       Filipino
                     </label>
-                    <label className="no-required-mark flex items-center gap-2 text-sm">
+                    <label className="flex items-center gap-2 text-sm">
                       <input
                         type="radio"
                         name="citizenship"
@@ -2585,9 +2765,9 @@ export default function Applicants() {
 
                     {formState.citizenship === "Dual Citizenship" ? (
                       <div className="space-y-2 rounded-md border border-border/60 px-3 py-2">
-                        <Label className="no-required-mark">Dual Citizenship Type</Label>
+                        <Label>Dual Citizenship Type</Label>
                         <div className="flex flex-wrap items-center gap-4">
-                          <label className="no-required-mark flex items-center gap-2 text-sm">
+                          <label className="flex items-center gap-2 text-sm">
                             <input
                               type="radio"
                               name="dual-citizenship-type"
@@ -2596,7 +2776,7 @@ export default function Applicants() {
                             />
                             By Birth
                           </label>
-                          <label className="no-required-mark flex items-center gap-2 text-sm">
+                          <label className="flex items-center gap-2 text-sm">
                             <input
                               type="radio"
                               name="dual-citizenship-type"
@@ -2801,7 +2981,7 @@ export default function Applicants() {
 
                 <div className="space-y-2 rounded-md border border-border/60 p-3">
                   <div className="flex items-center justify-between">
-                    <Label className="no-required-mark">Name of Children</Label>
+                    <Label>Name of Children</Label>
                     <Button
                       type="button"
                       variant="outline"
@@ -3018,10 +3198,10 @@ export default function Applicants() {
               </div>
               <div id="create-section-4" className={createSectionIndex === 3 ? "space-y-2" : "hidden"}>
               <div className="space-y-2">
-                <Label className="no-required-mark">IV. Civil Service Eligibility</Label>
+                <Label>IV. Civil Service Eligibility</Label>
                 <div className="space-y-2 rounded-md border border-border/60 p-3">
                   <div className="flex items-center justify-between">
-                    <Label className="no-required-mark">Eligibility Records</Label>
+                    <Label>Eligibility Records</Label>
                     <Button
                       type="button"
                       variant="outline"
@@ -3750,9 +3930,7 @@ export default function Applicants() {
                 {createSectionIndex < createSectionIds.length - 1 ? (
                   <Button type="button" onClick={handleNextCreateSection}>Next Section</Button>
                 ) : (
-                  <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                    {editingApplicantId ? "Save Changes" : "Save Applicant"}
-                  </Button>
+                  <Button type="submit" disabled={createMutation.isPending}>Save Applicant</Button>
                 )}
               </div>
             </form>
@@ -3763,90 +3941,34 @@ export default function Applicants() {
             setShowEdit(false);
             setEditingApplicantId(null);
             setEditDocuments({ resume: null, transcript: null, certificates: [] });
-            setEditNameParts({ firstName: "", middleName: "", lastName: "", extensionName: "" });
-            setEditAddressParts({ regionCode: "", cityCode: "", barangayCode: "", streetAddress: "" });
-            setEditDualCitizenshipType("");
-            setEditChildrenEntries([{ fullName: "", dateOfBirth: "" }]);
-            setEditEducationEntries(buildDefaultEducationEntries());
-            setEditCivilServiceEntries([createCivilServiceEntry()]);
-            setEditWorkExperienceEntries([createWorkExperienceEntry()]);
-            setEditVoluntaryWorkEntries([createVoluntaryWorkEntry()]);
-            setEditTrainingEntries([createTrainingEntry()]);
-            setEditOtherInfoEntries([createOtherInfoEntry()]);
           }
         }}>
-          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Edit Applicant</DialogTitle></DialogHeader>
             <form className="space-y-4" onSubmit={(e) => {
               e.preventDefault();
               if (!editingApplicantId) return;
-              const fullName = formatFullName(editNameParts);
-              const address = editAddressParts.streetAddress || editFormState.address;
-              const dualCitizenshipDetails = editDualCitizenshipType
-                ? `${editDualCitizenshipType}: ${editFormState.citizenshipDetails.trim()}`
-                : editFormState.citizenshipDetails.trim();
-              const childrenInfo = serializeChildrenInfo(editChildrenEntries);
-              const educationalBackground = serializeEducationalBackground(editEducationEntries);
-              const civilServiceEligibility = serializeCivilServiceEligibility(editCivilServiceEntries);
-              const workExperience = serializeWorkExperience(editWorkExperienceEntries);
-              const voluntaryWork = serializeVoluntaryWork(editVoluntaryWorkEntries);
-              const trainings = serializeTrainings(editTrainingEntries);
-              const otherInfo = serializeOtherInfo(editOtherInfoEntries);
-              updateMutation.mutate({
-                id: editingApplicantId,
-                payload: {
-                  ...editFormState,
-                  fullName,
-                  address,
-                  citizenshipDetails: editFormState.citizenship === "Dual Citizenship" ? dualCitizenshipDetails : "",
-                  childrenInfo,
-                  educationalBackground,
-                  civilServiceEligibility,
-                  workExperience,
-                  voluntaryWork,
-                  trainings,
-                  otherInfo
-                }
-              });
+              updateMutation.mutate({ id: editingApplicantId, payload: editFormState });
             }}>
               <div className="space-y-2">
                 <Label>Full Name</Label>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <Input
-                  placeholder="First Name"
-                  value={editNameParts.firstName}
-                  onChange={(e) => setEditNameParts((prev) => ({ ...prev, firstName: e.target.value }))}
-                />
-                <Input
-                  placeholder="Middle Name"
-                  value={editNameParts.middleName}
-                  onChange={(e) => setEditNameParts((prev) => ({ ...prev, middleName: e.target.value }))}
-                />
-                <Input
-                  placeholder="Surname"
-                  value={editNameParts.lastName}
-                  onChange={(e) => setEditNameParts((prev) => ({ ...prev, lastName: e.target.value }))}
-                />
-                <Input
-                  placeholder="Name Extension (JR/SR)"
-                  value={editNameParts.extensionName}
-                  onChange={(e) => setEditNameParts((prev) => ({ ...prev, extensionName: e.target.value }))}
+                  placeholder="e.g., Juan Dela Cruz"
+                  value={editFormState.fullName}
+                  onChange={(e) => setEditFormState((prev) => ({ ...prev, fullName: e.target.value }))}
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Mobile No.</Label>
+                  <Label>Contact Number</Label>
                   <Input
                     placeholder="09XXXXXXXXX"
-                    inputMode="numeric"
-                    maxLength={11}
                     value={editFormState.contactNumber}
-                    onChange={(e) => setEditFormState((prev) => ({ ...prev, contactNumber: e.target.value.replace(/[^0-9]/g, "") }))}
+                    onChange={(e) => setEditFormState((prev) => ({ ...prev, contactNumber: e.target.value }))}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>E-mail Address (if any)</Label>
+                  <Label>Email</Label>
                   <Input
                     type="email"
                     placeholder="email@example.com"
@@ -3857,129 +3979,43 @@ export default function Applicants() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Telephone No.</Label>
-                  <Input
-                    placeholder="(Optional landline)"
-                    inputMode="numeric"
-                    maxLength={11}
-                    value={editFormState.telephoneNumber}
-                    onChange={(e) => setEditFormState((prev) => ({ ...prev, telephoneNumber: e.target.value.replace(/[^0-9]/g, "") }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Place of Birth</Label>
-                  <Input
-                    placeholder="City / Municipality"
-                    value={editFormState.placeOfBirth}
-                    onChange={(e) => setEditFormState((prev) => ({ ...prev, placeOfBirth: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Permanent Address</Label>
-                <Input
-                  placeholder="Permanent Address"
-                  value={editFormState.permanentAddress}
-                  onChange={(e) => setEditFormState((prev) => ({ ...prev, permanentAddress: e.target.value }))}
-                />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
                   <Label>Date of Birth</Label>
                   <Input
-                    type="date"
+                    placeholder="MM/DD/YYYY"
                     value={editFormState.dateOfBirth}
                     onChange={(e) => setEditFormState((prev) => ({ ...prev, dateOfBirth: e.target.value }))}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Gender</Label>
-                  <Select value={editFormState.sex || undefined} onValueChange={(value) => setEditFormState((prev) => ({ ...prev, sex: value }))}>
-                    <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Male">Male</SelectItem>
-                      <SelectItem value="Female">Female</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label>Sex</Label>
+                  <Input
+                    placeholder="Male or Female"
+                    value={editFormState.sex}
+                    onChange={(e) => setEditFormState((prev) => ({ ...prev, sex: e.target.value }))}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Civil Status</Label>
-                  <Select value={editFormState.civilStatus || undefined} onValueChange={(value) => setEditFormState((prev) => ({ ...prev, civilStatus: value }))}>
-                    <SelectTrigger><SelectValue placeholder="Select civil status" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Single">Single</SelectItem>
-                      <SelectItem value="Married">Married</SelectItem>
-                      <SelectItem value="Widowed">Widowed</SelectItem>
-                      <SelectItem value="Separated">Separated</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    placeholder="Single, Married, etc."
+                    value={editFormState.civilStatus}
+                    onChange={(e) => setEditFormState((prev) => ({ ...prev, civilStatus: e.target.value }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Citizenship</Label>
-                  <div className="space-y-3 rounded-md border border-border/60 px-3 py-3">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="citizenship"
-                        checked={editFormState.citizenship === "Filipino"}
-                        onChange={() => {
-                          setEditDualCitizenshipType("");
-                          setEditFormState((prev) => ({ ...prev, citizenship: "Filipino", citizenshipDetails: "" }));
-                        }}
-                      />
-                      Filipino
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="citizenship"
-                        checked={editFormState.citizenship === "Dual Citizenship"}
-                        onChange={() => setEditFormState((prev) => ({ ...prev, citizenship: "Dual Citizenship" }))}
-                      />
-                      Dual Citizenship
-                    </label>
-                    {editFormState.citizenship === "Dual Citizenship" ? (
-                      <div className="space-y-2 rounded-md border border-border/60 px-3 py-2">
-                        <Label>Dual Citizenship Type</Label>
-                        <div className="flex flex-wrap items-center gap-4">
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="radio"
-                              name="dual-citizenship-type"
-                              checked={editDualCitizenshipType === "By Birth"}
-                              onChange={() => setEditDualCitizenshipType("By Birth")}
-                            />
-                            By Birth
-                          </label>
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="radio"
-                              name="dual-citizenship-type"
-                              checked={editDualCitizenshipType === "By Naturalization"}
-                              onChange={() => setEditDualCitizenshipType("By Naturalization")}
-                            />
-                            By Naturalization
-                          </label>
-                        </div>
-                        {editDualCitizenshipType ? (
-                          <Input
-                            placeholder="Enter country or legal basis"
-                            value={editFormState.citizenshipDetails}
-                            onChange={(e) => setEditFormState((prev) => ({ ...prev, citizenshipDetails: e.target.value }))}
-                          />
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
+                  <Input
+                    placeholder="Filipino"
+                    value={editFormState.citizenship}
+                    onChange={(e) => setEditFormState((prev) => ({ ...prev, citizenship: e.target.value }))}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Height (m)</Label>
+                  <Label>Height</Label>
                   <Input
                     placeholder="e.g. 1.57 m"
                     value={editFormState.height}
@@ -3987,7 +4023,7 @@ export default function Applicants() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Weight (kg)</Label>
+                  <Label>Weight</Label>
                   <Input
                     placeholder="e.g. 48 kg"
                     value={editFormState.weight}
@@ -4003,170 +4039,28 @@ export default function Applicants() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>UMID ID No.</Label>
-                  <Input
-                    placeholder="UMID number"
-                    value={editFormState.gsisIdNo}
-                    onChange={(e) => setEditFormState((prev) => ({ ...prev, gsisIdNo: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>PAG-IBIG ID No.</Label>
-                  <Input
-                    placeholder="PAG-IBIG number"
-                    value={editFormState.pagibigIdNo}
-                    onChange={(e) => setEditFormState((prev) => ({ ...prev, pagibigIdNo: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>PhilHealth No.</Label>
-                  <Input
-                    placeholder="PhilHealth number"
-                    value={editFormState.philhealthNo}
-                    onChange={(e) => setEditFormState((prev) => ({ ...prev, philhealthNo: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>PhilSys Number (PSN)</Label>
-                  <Input
-                    placeholder="PhilSys number"
-                    value={editFormState.philsysNo}
-                    onChange={(e) => setEditFormState((prev) => ({ ...prev, philsysNo: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>SSS No.</Label>
-                  <Input
-                    placeholder="SSS number"
-                    value={editFormState.sssNo}
-                    onChange={(e) => setEditFormState((prev) => ({ ...prev, sssNo: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>TIN No.</Label>
-                  <Input
-                    placeholder="TIN number"
-                    value={editFormState.tinNo}
-                    onChange={(e) => setEditFormState((prev) => ({ ...prev, tinNo: e.target.value }))}
-                  />
-                </div>
-              </div>
               <div className="space-y-2">
-                <Label>Agency Employee No.</Label>
+                <Label>Address</Label>
                 <Input
-                  placeholder="Agency employee number"
-                  value={editFormState.agencyEmployeeNo}
-                  onChange={(e) => setEditFormState((prev) => ({ ...prev, agencyEmployeeNo: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Residential Address</Label>
-                <Input
-                  placeholder="Street / City / Province"
-                  value={editAddressParts.streetAddress}
-                  onChange={(e) => setEditAddressParts((prev) => ({ ...prev, streetAddress: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2 rounded-md border border-border/60 p-3">
-                <Label>Spouse Information</Label>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  <Input placeholder="Surname" value={editFormState.spouseSurname} onChange={(e) => setEditFormState((prev) => ({ ...prev, spouseSurname: e.target.value }))} />
-                  <Input placeholder="First Name" value={editFormState.spouseFirstName} onChange={(e) => setEditFormState((prev) => ({ ...prev, spouseFirstName: e.target.value }))} />
-                  <Input placeholder="Middle Name" value={editFormState.spouseMiddleName} onChange={(e) => setEditFormState((prev) => ({ ...prev, spouseMiddleName: e.target.value }))} />
-                  <Input placeholder="Name Extension (JR, SR)" value={editFormState.spouseNameExtension} onChange={(e) => setEditFormState((prev) => ({ ...prev, spouseNameExtension: e.target.value }))} />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Input placeholder="Occupation" value={editFormState.spouseOccupation} onChange={(e) => setEditFormState((prev) => ({ ...prev, spouseOccupation: e.target.value }))} />
-                  <Input placeholder="Employer / Business Name" value={editFormState.spouseEmployerBusinessName} onChange={(e) => setEditFormState((prev) => ({ ...prev, spouseEmployerBusinessName: e.target.value }))} />
-                  <Input placeholder="Business Address" value={editFormState.spouseBusinessAddress} onChange={(e) => setEditFormState((prev) => ({ ...prev, spouseBusinessAddress: e.target.value }))} />
-                  <Input placeholder="Telephone No." inputMode="numeric" maxLength={11} value={editFormState.spouseTelephoneNo} onChange={(e) => setEditFormState((prev) => ({ ...prev, spouseTelephoneNo: e.target.value.replace(/[^0-9]/g, "") }))} />
-                </div>
-              </div>
-              <div className="space-y-2 rounded-md border border-border/60 p-3">
-                <Label>Father Information</Label>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  <Input placeholder="Surname" value={editFormState.fatherSurname} onChange={(e) => setEditFormState((prev) => ({ ...prev, fatherSurname: e.target.value }))} />
-                  <Input placeholder="First Name" value={editFormState.fatherFirstName} onChange={(e) => setEditFormState((prev) => ({ ...prev, fatherFirstName: e.target.value }))} />
-                  <Input placeholder="Middle Name" value={editFormState.fatherMiddleName} onChange={(e) => setEditFormState((prev) => ({ ...prev, fatherMiddleName: e.target.value }))} />
-                  <Input placeholder="Name Extension (JR, SR)" value={editFormState.fatherNameExtension} onChange={(e) => setEditFormState((prev) => ({ ...prev, fatherNameExtension: e.target.value }))} />
-                </div>
-              </div>
-              <div className="space-y-2 rounded-md border border-border/60 p-3">
-                <Label>Mother Information</Label>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  <Input placeholder="Surname" value={editFormState.motherSurname} onChange={(e) => setEditFormState((prev) => ({ ...prev, motherSurname: e.target.value }))} />
-                  <Input placeholder="First Name" value={editFormState.motherFirstName} onChange={(e) => setEditFormState((prev) => ({ ...prev, motherFirstName: e.target.value }))} />
-                  <Input placeholder="Middle Name" value={editFormState.motherMiddleName} onChange={(e) => setEditFormState((prev) => ({ ...prev, motherMiddleName: e.target.value }))} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Children Information</Label>
-                <Textarea
-                  placeholder="Full Name | Date of Birth (one per line)"
-                  value={serializeChildrenInfo(editChildrenEntries)}
-                  onChange={(e) => setEditChildrenEntries(parseChildrenInfo(e.target.value))}
+                  placeholder="City, Province"
+                  value={editFormState.address}
+                  onChange={(e) => setEditFormState((prev) => ({ ...prev, address: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
                 <Label>Educational Background</Label>
                 <Textarea
-                  placeholder="Level | School Name | Degree/Course | From | To | Units | Year Graduated | Honors (one per line)"
-                  value={serializeEducationalBackground(editEducationEntries)}
-                  onChange={(e) => setEditEducationEntries(parseEducationalBackground(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Civil Service Eligibility</Label>
-                <Textarea
-                  placeholder="Eligibility | Rating | Exam Date | Exam Place | License No. | Valid Until (one per line)"
-                  value={serializeCivilServiceEligibility(editCivilServiceEntries)}
-                  onChange={(e) => setEditCivilServiceEntries(parseCivilServiceEligibility(e.target.value))}
+                  placeholder="Degree - School"
+                  value={editFormState.educationalBackground}
+                  onChange={(e) => setEditFormState((prev) => ({ ...prev, educationalBackground: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
                 <Label>Work Experience</Label>
                 <Textarea
-                  placeholder="From | To | Position | Department | Status | Gov't Service (one per line)"
-                  value={serializeWorkExperience(editWorkExperienceEntries)}
-                  onChange={(e) => setEditWorkExperienceEntries(parseWorkExperience(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Voluntary Work</Label>
-                <Textarea
-                  placeholder="Organization | From | To | Hours | Position/Nature (one per line)"
-                  value={serializeVoluntaryWork(editVoluntaryWorkEntries)}
-                  onChange={(e) => setEditVoluntaryWorkEntries(parseVoluntaryWork(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Training Programs</Label>
-                <Textarea
-                  placeholder="Title | From | To | Hours | Type | Conducted By (one per line)"
-                  value={serializeTrainings(editTrainingEntries)}
-                  onChange={(e) => setEditTrainingEntries(parseTrainings(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Other Information</Label>
-                <Textarea
-                  placeholder="Skills | Distinctions | Memberships (one per line)"
-                  value={serializeOtherInfo(editOtherInfoEntries)}
-                  onChange={(e) => setEditOtherInfoEntries(parseOtherInfo(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>References</Label>
-                <Textarea
-                  placeholder="References information"
-                  value={editFormState.referencesInfo}
-                  onChange={(e) => setEditFormState((prev) => ({ ...prev, referencesInfo: e.target.value }))}
+                  placeholder="Years and relevant positions"
+                  value={editFormState.workExperience}
+                  onChange={(e) => setEditFormState((prev) => ({ ...prev, workExperience: e.target.value }))}
                 />
               </div>
               
@@ -4332,16 +4226,6 @@ export default function Applicants() {
                   setShowEdit(false);
                   setEditingApplicantId(null);
                   setEditDocuments({ resume: null, transcript: null, certificates: [] });
-                  setEditNameParts({ firstName: "", middleName: "", lastName: "", extensionName: "" });
-                  setEditAddressParts({ regionCode: "", cityCode: "", barangayCode: "", streetAddress: "" });
-                  setEditDualCitizenshipType("");
-                  setEditChildrenEntries([{ fullName: "", dateOfBirth: "" }]);
-                  setEditEducationEntries(buildDefaultEducationEntries());
-                  setEditCivilServiceEntries([createCivilServiceEntry()]);
-                  setEditWorkExperienceEntries([createWorkExperienceEntry()]);
-                  setEditVoluntaryWorkEntries([createVoluntaryWorkEntry()]);
-                  setEditTrainingEntries([createTrainingEntry()]);
-                  setEditOtherInfoEntries([createOtherInfoEntry()]);
                 }}>Cancel</Button>
                 <Button type="submit" disabled={updateMutation.isPending}>Save Changes</Button>
               </div>
@@ -4530,7 +4414,7 @@ export default function Applicants() {
                         ["Telephone No.", applicant.telephoneNumber],
                         ["Date of Birth", applicant.dateOfBirth],
                         ["Place of Birth", applicant.placeOfBirth],
-                        ["Gender", applicant.sex],
+                        ["Sex at Birth", applicant.sex],
                         ["Civil Status", applicant.civilStatus],
                         ["Citizenship", applicant.citizenship],
                         ["Citizenship Details", applicant.citizenshipDetails],
