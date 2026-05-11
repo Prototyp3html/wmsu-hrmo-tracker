@@ -1668,27 +1668,28 @@ export default function Applicants() {
         pdf.text(declLines, ML + 2, y + 4);
         y += declH + 4;
 
-        // Signature block
+        // Signature block — left: applicant signature only (no Date); right: administering officer
         const sigH = 22;
         const sigW = CW / 2;
 
-        // Left: Applicant signature
-        fillR(ML, y, sigW, sigH, WHITE); borderR(ML, y, sigW, sigH, 0.3);
+        // Left: Applicant signature (no Date label)
+        fillR(ML, y, sigW, sigH, WHITE);
+        borderR(ML, y, sigW, sigH, 0.3);
+        pdf.setDrawColor(...DGRAY);
+        pdf.setLineWidth(0.3);
+        pdf.line(ML + 6, y + sigH - 8, ML + sigW - 6, y + sigH - 8);
         txt("Signature", ML, y + sigH - 7, sigW, 5, 6.5, false, BLACK, "center");
-        // signature line
-        pdf.setDrawColor(...DGRAY); pdf.setLineWidth(0.3);
-        pdf.line(ML+6, y + sigH - 8, ML + sigW - 6, y + sigH - 8);
-        txt("Date", ML, y + sigH - 2.5, sigW/2, 5, 6.5, false, BLACK, "center");
-        pdf.line(ML + sigW/2 + 2, y + sigH - 3.5, ML + sigW - 4, y + sigH - 3.5);
 
-        // Right: Administering officer
-        fillR(ML + sigW, y, sigW, sigH, WHITE); borderR(ML + sigW, y, sigW, sigH, 0.3);
-        pdf.setFontSize(6); pdf.setFont("helvetica","normal"); pdf.setTextColor(0,0,0);
+        // Right: Administering officer (restored)
+        fillR(ML + sigW, y, sigW, sigH, WHITE);
+        borderR(ML + sigW, y, sigW, sigH, 0.3);
+        pdf.setFontSize(6); pdf.setFont("helvetica", "normal"); pdf.setTextColor(0,0,0);
         const sworn = "SUBSCRIBED AND SWORN to before me this ___ day of ______________, ______ at _________________________, Philippines.";
         const swornLines = pdf.splitTextToSize(sworn, sigW - 4);
         pdf.text(swornLines, ML + sigW + 2, y + 5);
         txt("Administering Officer", ML + sigW, y + sigH - 7, sigW, 5, 6.5, false, BLACK, "center");
         pdf.line(ML + sigW + 4, y + sigH - 8, ML + CW - 4, y + sigH - 8);
+
         y += sigH;
 
         // ── footer on every page ──────────────────────────────────────────
