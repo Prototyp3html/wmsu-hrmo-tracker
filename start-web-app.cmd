@@ -2,14 +2,12 @@
 setlocal
 cd /d "%~dp0"
 
-if not exist "backend\dist\index.js" (
-  echo Building web app...
-  call npm run build:web
-  if errorlevel 1 (
-    echo Build failed. Press any key to close.
-    pause >nul
-    exit /b 1
-  )
+echo Building web app...
+call npm run build:web
+if errorlevel 1 (
+  echo Build failed. Press any key to close.
+  pause >nul
+  exit /b 1
 )
 
 start "WMSU HR Connect Server" /D "%~dp0" cmd /k node backend\dist\index.js
