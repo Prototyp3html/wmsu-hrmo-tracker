@@ -120,6 +120,20 @@ type SearchableOption = {
   label: string;
 };
 
+const addressSuggestions = [
+  "Zamboanga City, Zamboanga del Sur",
+  "Zamboanga del Norte",
+  "Zamboanga del Sur",
+  "Manila, Metro Manila",
+  "Mandaluyong, Metro Manila",
+  "Mango Ave, General Santos City",
+  "Magallanes Village, Makati City",
+  "Manggahan, Pasig City",
+  "Main Street, Barangay Central, Zamboanga City",
+  "Manuel A. Roxas St, Zamboanga City",
+  "Barangay 1, Zamboanga City"
+];
+
 const PSGC_BASE_URL = "https://psgc.gitlab.io/api";
 
 function normalizeLocationText(value: string) {
@@ -2345,6 +2359,16 @@ export default function Applicants() {
     return Array.from({ length: currentYear - 1949 }, (_, index) => String(currentYear - index));
   }, []);
 
+  const filteredAddressSuggestions = useMemo(() => {
+    const query = formState.address.trim().toLowerCase();
+    if (!query) {
+      return [];
+    }
+    return addressSuggestions
+      .filter((suggestion) => suggestion.toLowerCase().includes(query))
+      .slice(0, 6);
+  }, [formState.address]);
+
   useEffect(() => {
     let isCancelled = false;
 
@@ -3047,13 +3071,8 @@ export default function Applicants() {
                 return;
               }
 
-              const hasStructuredAddress = Boolean(addressParts.regionCode && addressParts.cityCode && addressParts.barangayCode);
-              const hasFallbackAddress = addressParts.streetAddress.trim().length > 0;
-
               const fullName = formatFullName(nameParts);
-              const address = hasStructuredAddress
-                ? formatAddress(addressParts.streetAddress, selectedBarangayName, selectedCityName, selectedRegionName)
-                : (addressParts.streetAddress.trim() || "Address not provided");
+              const address = formState.address.trim() || "Address not provided";
               const dualCitizenshipDetails = dualCitizenshipType
                 ? `${dualCitizenshipType}: ${formState.citizenshipDetails.trim()}`
                 : formState.citizenshipDetails.trim();
@@ -3373,59 +3392,27 @@ export default function Applicants() {
               </div>
               <div className="space-y-2 rounded-md border border-border/60 p-3">
                 <Label>Residential Address</Label>
-                <div className="space-y-3">
-                  <SearchableSelect
-                    value={addressParts.regionCode}
-                    onValueChange={(regionCode) =>
-                      setAddressParts({
-                        regionCode,
-                        cityCode: "",
-                        barangayCode: "",
-                        streetAddress: ""
-                      })
-                    }
-                    options={regionOptions}
-                    placeholder="Select Region"
-                    searchPlaceholder="Search region..."
-                    emptyMessage="No region found"
-                    loadingMessage={isLoadingRegions ? "Loading regions..." : undefined}
+                <div className="relative">
+                  <Input
+                    placeholder="Type residential address"
+                    value={formState.address}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, address: e.target.value }))}
+                    autoComplete="off"
                   />
-                  {addressParts.regionCode ? (
-                    <SearchableSelect
-                      value={addressParts.cityCode}
-                      onValueChange={(cityCode) =>
-                        setAddressParts((prev) => ({
-                          ...prev,
-                          cityCode,
-                          barangayCode: "",
-                          streetAddress: ""
-                        }))
-                      }
-                      options={cityOptions}
-                      placeholder="Select City / Municipality"
-                      searchPlaceholder="Search city/municipality..."
-                      emptyMessage="No city/municipality found"
-                      loadingMessage={isLoadingCities ? "Loading cities/municipalities..." : undefined}
-                    />
-                  ) : null}
-                  {addressParts.cityCode ? (
-                    <SearchableSelect
-                      value={addressParts.barangayCode}
-                      onValueChange={(barangayCode) => setAddressParts((prev) => ({ ...prev, barangayCode }))}
-                      options={barangayOptions}
-                      placeholder="Select Barangay"
-                      searchPlaceholder="Search barangay..."
-                      emptyMessage="No barangay found"
-                      loadingMessage={isLoadingBarangays ? "Loading barangays..." : undefined}
-                    />
-                  ) : null}
-                  {addressParts.barangayCode || addressParts.streetAddress ? (
-                    <Input
-                      placeholder="Street / Purok / Sitio (Optional)"
-                      value={addressParts.streetAddress}
-                      onChange={(e) => setAddressParts((prev) => ({ ...prev, streetAddress: e.target.value }))}
-                    />
-                  ) : null}
+                  {filteredAddressSuggestions.length > 0 && (
+                    <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-border/60 bg-popover shadow-lg">
+                      {filteredAddressSuggestions.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                          onClick={() => setFormState((prev) => ({ ...prev, address: suggestion }))}
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               </div>
