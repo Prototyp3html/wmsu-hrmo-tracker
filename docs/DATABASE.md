@@ -1,6 +1,6 @@
 # Database Schema Reference
 
-Complete database schema for WMSU HR Connect.
+Complete database schema for WMSU HRMO Tracker.
 
 ## Overview
 

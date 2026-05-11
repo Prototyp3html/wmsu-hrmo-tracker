@@ -1,11 +1,11 @@
 # Project Structure - Detailed Guide
 
-Complete file and folder organization for WMSU HR Connect.
+Complete file and folder organization for WMSU HRMO Tracker.
 
 ## Root Directory
 
 ```
-wmsu-hr-connect/
+wmsu-hrmo-tracker/
 ├── backend/                              # Node.js + Express backend
 ├── frontend/                             # React + Vite frontend
 ├── docs/                                 # 📚 Documentation (NEW)

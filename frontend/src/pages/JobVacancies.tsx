@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createDepartment, createJob, deleteDepartment, fetchDepartments, fetchJobs, fetchPositionTitles, updateJob, deleteJob, deleteJobsByTitle, createPositionTitle, fetchCustomPositionTitles, fetchApplications } from "@/lib/api";
+import { createDepartment, createJob, deleteDepartment, fetchDepartments, fetchJobs, fetchPositionTitles, updateJob, deleteJob, deleteJobsByTitle, deletePositionTitle, createPositionTitle, fetchCustomPositionTitles, fetchApplications } from "@/lib/api";
 import { getVacancyStatusColor } from "@/lib/status";
 import type { JobVacancy } from "@/lib/types";
 import { Plus, Search, Pencil, Eye, Trash2, Ellipsis } from "lucide-react";
@@ -23,24 +23,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
 const ADD_NEW_POSITION_VALUE = "__add_new_position__";
-
-const DEFAULT_POSITION_TITLES = [
-  "Instructor III",
-  "Information Technology Officer I Repost",
-  "Attorney IV",
-  "Information Officer I",
-  "Administrative Aide VI (Clerk III)",
-  "Project Development Officer I",
-  "Internal Auditor I",
-  "Administrative Assistant III (Senior Bookkeeper)",
-  "Administrative Assistant III",
-  "SUC Vice President",
-  "Board Secretary V",
-  "Chief Administrative Officer",
-  "Administrative Aide VI",
-  "Administrative Assistant II",
-  "Administrative Officer I"
-];
 
 const TEST_SALARY_GRADE_BY_TITLE: Record<string, number> = {
   "instructor iii": 14,
@@ -143,14 +125,13 @@ export default function JobVacancies() {
   const positionTitleOptions = useMemo(() => {
     return Array.from(new Set([
       ...positionTitles,
-      ...jobVacancies.map((vacancy) => vacancy.positionTitle),
       ...customPositionTitles,
       formState.positionTitle,
       editFormState.positionTitle
     ]))
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b));
-  }, [positionTitles, jobVacancies, customPositionTitles, formState.positionTitle, editFormState.positionTitle]);
+  }, [positionTitles, customPositionTitles, formState.positionTitle, editFormState.positionTitle]);
 
   const registerCustomPositionTitle = async (rawTitle: string) => {
     const title = rawTitle.trim();
@@ -322,10 +303,10 @@ export default function JobVacancies() {
     }
   });
 
-  const { refetch: refetchCustomTitles } = useQuery({
+  const { data: customTitles = [], refetch: refetchCustomTitles } = useQuery({
     queryKey: ["position-titles-custom"],
     queryFn: fetchCustomPositionTitles,
-    enabled: false // only fetch on demand when manage dialog opens
+    enabled: showManageTitles // fetch when manage dialog opens
   });
 
   const updateMutation = useMutation({
@@ -357,6 +338,12 @@ export default function JobVacancies() {
 
     try {
       if (deleteTarget.type === "title") {
+        // If this is a custom title (deleteTarget.id is the custom title id), remove the persisted title
+        try {
+          await deletePositionTitle(deleteTarget.id);
+        } catch (err) {
+          // ignore if not found, continue to attempt removing job refs
+        }
         const result = await deleteJobsByTitle(deleteTarget.name);
         setCustomPositionTitles((prev) => prev.filter((item) => item.toLowerCase() !== deleteTarget.name.toLowerCase()));
         queryClient.invalidateQueries({ queryKey: ["position-titles"] });
@@ -653,11 +640,15 @@ export default function JobVacancies() {
               {positionTitleOptions.length === 0 && (
                 <div className="text-sm text-muted-foreground">No titles available.</div>
               )}
-              {positionTitleOptions.map((title) => {
+              {customTitles.length === 0 && (
+                <div className="text-sm text-muted-foreground">No custom titles available.</div>
+              )}
+              {customTitles.map((entry) => {
+                const title = entry.title;
                 const usageCount = titleApplicationCount.get(title.toLowerCase()) ?? 0;
                 const canDelete = usageCount === 0;
                 return (
-                  <div key={title} className="flex items-center justify-between gap-3">
+                  <div key={entry.id} className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-medium truncate">{title}</div>
                       <div className="text-xs text-muted-foreground">
@@ -669,7 +660,7 @@ export default function JobVacancies() {
                         variant="destructive"
                         size="sm"
                         onClick={async () => {
-                          setDeleteTarget({ type: "title", id: title, name: title });
+                          setDeleteTarget({ type: "title", id: entry.id, name: title });
                           setShowDeleteConfirm(true);
                         }}
                       >

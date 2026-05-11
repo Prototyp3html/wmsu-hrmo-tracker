@@ -4,7 +4,7 @@
 **Handover Date**: May 7, 2026  
 **Status**: ✅ Production Ready
 
-Welcome to the WMSU HR Connect project! This document is your starting point for understanding and taking over the codebase.
+Welcome to the WMSU HRMO Tracker project! This document is your starting point for understanding and taking over the codebase.
 
 ## 📋 Quick Navigation
 
@@ -35,7 +35,7 @@ Welcome to the WMSU HR Connect project! This document is your starting point for
 
 ## 🎯 Project Overview
 
-### What is WMSU HR Connect?
+### What is WMSU HRMO Tracker?
 
 A full-stack HR management system for Western Mindanao State University built with:
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS
@@ -71,7 +71,7 @@ A full-stack HR management system for Western Mindanao State University built wi
 ```bash
 # 1. Clone repo
 git clone <repo-url>
-cd wmsu-hr-connect
+cd wmsu-hrmo-tracker
 
 # 2. Install
 npm install
@@ -109,7 +109,7 @@ Access:
 ## 📁 File Organization Summary
 
 ```
-wmsu-hr-connect/
+wmsu-hrmo-tracker/
 ├── backend/                    # Node.js + Express
 │   └── src/index.ts           # Main server (3000+ lines)
 ├── frontend/                   # React + Vite

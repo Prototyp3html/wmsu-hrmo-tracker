@@ -1,6 +1,6 @@
 # Desktop Shortcut Setup Guide
 
-Quick guide to create desktop shortcuts for running WMSU HR Connect locally or accessing the production site.
+Quick guide to create desktop shortcuts for running WMSU HRMO Tracker locally or accessing the production site.
 
 ## � Automated Setup (Easiest Method - RECOMMENDED)
 
@@ -63,7 +63,7 @@ If double-clicking `Create Desktop Shortcut.cmd` doesn't work:
 1. Right-click PowerShell → Run as Administrator
 2. Navigate to project:
 ```powershell
-cd "C:\Users\YourName\Desktop\Github-repo's\wmsu-hr-connect"
+cd "C:\Users\YourName\Desktop\Github-repo's\wmsu-hrmo-tracker"
 ```
 3. Run:
 ```powershell
@@ -86,7 +86,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "create-desktop-shortcut.ps1
 2. Paste this:
 ```batch
 @echo off
-cd /d "C:\Users\YourName\Desktop\Github-repo's\wmsu-hr-connect"
+cd /d "C:\Users\YourName\Desktop\Github-repo's\wmsu-hrmo-tracker"
 npm run dev
 pause
 ```
@@ -117,7 +117,7 @@ pause
 1. Open Terminal
 2. Navigate to project:
 ```bash
-cd ~/Desktop/Github-repo\'s/wmsu-hr-connect
+cd ~/Desktop/Github-repo\'s/wmsu-hrmo-tracker
 ```
 
 3. Create `start-dev.sh`:
@@ -164,8 +164,8 @@ chmod +x start-dev.sh
 Version=1.0
 Type=Application
 Name=HR Connect Dev
-Comment=Start WMSU HR Connect development server
-Exec=/home/username/Desktop/Github-repo\'s/wmsu-hr-connect/start-dev.sh
+Comment=Start WMSU HRMO Tracker development server
+Exec=/home/username/Desktop/Github-repo\'s/wmsu-hrmo-tracker/start-dev.sh
 Icon=code
 Terminal=true
 Categories=Development;
@@ -291,7 +291,7 @@ Ensure IT team knows about shortcuts:
 - [ ] Team received project with `Create Desktop Shortcut.cmd`
 - [ ] Team successfully created desktop shortcut
 - [ ] Team can double-click shortcut and launch app
-- [ ] Team knows to delete old "WMSU HR Connect" shortcut if exists
+- [ ] Team knows to delete old "WMSU HRMO Tracker" shortcut if exists
 - [ ] Team has this documentation saved locally
 - [ ] Team knows manual shortcut creation as backup
 

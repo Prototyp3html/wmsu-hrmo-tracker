@@ -162,6 +162,45 @@ function formatAddress(streetAddress: string, barangayName: string, cityName: st
   return [streetAddress.trim(), barangayName.trim(), cityName.trim(), regionName.trim()].filter(Boolean).join(", ");
 }
 
+function normalizeDateForInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  const match = trimmed.match(/(\d{1,4})[\/\-](\d{1,2})[\/\-](\d{1,4})/);
+  if (!match) return trimmed;
+
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  const third = Number(match[3]);
+
+  if (match[1].length === 4) {
+    return `${match[1]}-${pad(second)}-${pad(third)}`;
+  }
+
+  if (match[3].length === 4) {
+    if (first > 12 && second <= 12) {
+      return `${match[3]}-${pad(second)}-${pad(first)}`;
+    }
+
+    if (second > 12 && first <= 12) {
+      return `${match[3]}-${pad(first)}-${pad(second)}`;
+    }
+
+    return `${match[3]}-${pad(first)}-${pad(second)}`;
+  }
+
+  return trimmed;
+}
+
+function normalizeChoice(value: string, allowed: string[]) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const matched = allowed.find((option) => option.toLowerCase() === trimmed.toLowerCase());
+  return matched ?? trimmed;
+}
+
 function splitFullName(fullName: string): NameParts {
   const suffixes = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"]);
   const parts = fullName.trim().replace(/\s+/g, " ").split(" ").filter(Boolean);
@@ -1409,19 +1448,15 @@ export default function Applicants() {
         // Normalize citizenship — "Filipino & Dual Citizenship" → "Filipino"
         const citizNorm = pickFirst(applicant.citizenship || "", ["Filipino","Dual Citizenship"]);
 
-        // Sex
+        // Sex (single value)
         fillR(ML, y, sexW, r3H, WHITE); borderR(ML, y, sexW, r3H);
         smallTxt("4.  SEX", ML, y, sexW);
-        txt((sexNorm === "Male" ? "✓" : "☐") + " Male",   ML,            y + r3H*0.38, sexW*0.5, r3H*0.62, 6.5);
-        txt((sexNorm === "Female" ? "✓" : "☐") + " Female", ML+sexW*0.5, y + r3H*0.38, sexW*0.5, r3H*0.62, 6.5);
+        txt(sexNorm || "N/A", ML + 2, y + r3H*0.38, sexW - 4, r3H*0.62, 7);
 
-        // Civil Status
+        // Civil Status (single value)
         fillR(ML+sexW, y, csW2, r3H, WHITE); borderR(ML+sexW, y, csW2, r3H);
         smallTxt("5.  CIVIL STATUS", ML+sexW, y, csW2);
-        const row1S = csOptions.slice(0,3).map(s => (csNorm===s?"✓":"☐")+" "+s).join("  ");
-        const row2S = csOptions.slice(3).map(s => (csNorm===s?"✓":"☐")+" "+s).join("  ");
-        txt(row1S, ML+sexW, y+r3H*0.38, csW2, r3H*0.31, 6);
-        txt(row2S, ML+sexW, y+r3H*0.69, csW2, r3H*0.31, 6);
+        txt(csNorm || "N/A", ML+sexW + 2, y + r3H*0.38, csW2 - 4, r3H*0.62, 7);
 
         lvc("6.  HEIGHT (m)",  applicant.height  || "", ML+sexW+csW2,          y, htW, r3H);
         lvc("7.  WEIGHT (kg)", applicant.weight  || "", ML+sexW+csW2+htW,      y, wtW, r3H);
@@ -1432,16 +1467,9 @@ export default function Applicants() {
         const r4H = 9;
         fillR(ML, y, CW*0.5, r4H, WHITE); borderR(ML, y, CW*0.5, r4H);
         smallTxt("9.  CITIZENSHIP", ML, y, CW*0.5);
-        const isFil  = citizNorm === "Filipino";
-        const isDual = citizNorm === "Dual Citizenship";
-        txt((isFil?"✓":"☐")+" Filipino      "+(isDual?"✓":"☐")+" Dual Citizenship", ML, y+r4H*0.38, CW*0.5, r4H*0.32, 6.5);
-        if (isDual) {
-          const isBirth = /^By Birth/i.test(applicant.citizenshipDetails || "");
-          const isNat   = /^By Naturalization/i.test(applicant.citizenshipDetails || "");
-          const country = (applicant.citizenshipDetails||"").replace(/^By (Birth|Naturalization):\s*/i,"");
-          txt(`${isBirth?"✓":"☐"} By Birth  ${isNat?"✓":"☐"} By Naturalization  Country: ${country}`,
-            ML, y+r4H*0.68, CW*0.5, r4H*0.32, 6);
-        }
+        // Render single-value citizenship, append details for Dual Citizenship
+        const citizDisplay = citizNorm + (citizNorm === "Dual Citizenship" && applicant.citizenshipDetails ? " — " + applicant.citizenshipDetails : "");
+        txt(citizDisplay || "N/A", ML + 2, y + r4H*0.38, CW*0.5 - 4, r4H*0.62, 7);
         lvc("10.  TELEPHONE NO.", applicant.telephoneNumber||"", ML+CW*0.5,    y, CW*0.25, r4H);
         lvc("11.  MOBILE NO.",    applicant.contactNumber  ||"", ML+CW*0.75,   y, CW*0.25, r4H);
         y += r4H;
@@ -2056,13 +2084,8 @@ export default function Applicants() {
 
               <!-- Row 3: Sex | Civil Status | Height | Weight | Blood Type -->
               <tr>
-                ${chkCell("4.&nbsp;&nbsp;SEX",
-                  chk(sexNorm==="Male")+" Male &nbsp; "+chk(sexNorm==="Female")+" Female",
-                  RH_CHKBX, "width:14%;")}
-                ${chkCell("5.&nbsp;&nbsp;CIVIL STATUS",
-                  chk(csNorm==="Single")+" Single &nbsp;"+chk(csNorm==="Married")+" Married &nbsp;"+chk(csNorm==="Widowed")+" Widowed &nbsp;"+
-                  chk(csNorm==="Separated")+" Separated &nbsp;"+chk(csNorm==="Other")+" Other",
-                  RH_CHKBX, "width:22%;")}
+                ${lvc("4.&nbsp;&nbsp;SEX", sexNorm || "N/A", RH_CHKBX, "width:14%;")}
+                ${lvc("5.&nbsp;&nbsp;CIVIL STATUS", csNorm || "N/A", RH_CHKBX, "width:22%;")}
                 ${lvc("6.&nbsp;&nbsp;HEIGHT (m)", applicant.height || "", RH_CHKBX, "width:14%;")}
                 ${lvc("7.&nbsp;&nbsp;WEIGHT (kg)", applicant.weight || "", RH_CHKBX, "width:14%;")}
                 ${lvc("8.&nbsp;&nbsp;BLOOD TYPE", applicant.bloodType || "", RH_CHKBX, "width:36%;")}
@@ -2070,9 +2093,7 @@ export default function Applicants() {
 
               <!-- Row 4: Citizenship | Telephone | Mobile -->
               <tr>
-                ${chkCell("9.&nbsp;&nbsp;CITIZENSHIP",
-                  chk(isFil)+" Filipino &nbsp;&nbsp; "+chk(isDual)+" Dual Citizenship",
-                  RH_CITIZ, "width:50%;")}
+                ${lvc("9.&nbsp;&nbsp;CITIZENSHIP", citizNorm + (isDual && applicant.citizenshipDetails ? " — " + applicant.citizenshipDetails : ""), RH_CITIZ, "width:50%;")}
                 ${lvc("10.&nbsp;&nbsp;TELEPHONE NO.", applicant.telephoneNumber || "", RH_CITIZ, "width:25%;")}
                 ${lvc("11.&nbsp;&nbsp;MOBILE NO.", applicant.contactNumber || "", RH_CITIZ, "width:25%;")}
               </tr>
@@ -2675,11 +2696,11 @@ export default function Applicants() {
       telephoneNumber: draft.telephoneNumber || prev.telephoneNumber,
       email: draft.email || prev.email,
       permanentAddress: draft.permanentAddress || prev.permanentAddress,
-      dateOfBirth: draft.dateOfBirth || prev.dateOfBirth,
+      dateOfBirth: normalizeDateForInput(draft.dateOfBirth) || prev.dateOfBirth,
       placeOfBirth: draft.placeOfBirth || prev.placeOfBirth,
-      sex: draft.sex || prev.sex,
-      civilStatus: draft.civilStatus || prev.civilStatus,
-      citizenship: incomingCitizenship || prev.citizenship,
+      sex: normalizeChoice(draft.sex, ["Male", "Female"]) || prev.sex,
+      civilStatus: normalizeChoice(draft.civilStatus, ["Single", "Married", "Widowed", "Separated", "Divorced"]) || prev.civilStatus,
+      citizenship: normalizeChoice(incomingCitizenship, ["Filipino", "Dual Citizenship", "Natural Born Filipino", "Naturalized Filipino"]) || prev.citizenship,
       height: draft.height || prev.height,
       weight: draft.weight || prev.weight,
       bloodType: draft.bloodType || prev.bloodType,

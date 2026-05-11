@@ -70,7 +70,53 @@ const TEST_ACCOUNT_PASSWORD = "password123";
 
 const jobVacancies: SeedJobVacancy[] = [];
 
-const applicants: SeedApplicant[] = [];
+const applicants: SeedApplicant[] = [
+  {
+    id: randomUUID(),
+    fullName: "Juan Dela Cruz",
+    contactNumber: "09171234567",
+    email: "juan.delacruz@example.com",
+    address: "Barangay Baliwasan, Zamboanga City, Zamboanga del Sur",
+    educationalBackground: "Bachelor of Science in Information Technology - Western Mindanao State University",
+    workExperience: "Administrative Assistant, 2022-Present"
+  },
+  {
+    id: randomUUID(),
+    fullName: "Maria Santos",
+    contactNumber: "09181234567",
+    email: "maria.santos@example.com",
+    address: "Barangay Tumaga, Zamboanga City, Zamboanga del Sur",
+    educationalBackground: "Bachelor of Science in Business Administration - Ateneo de Zamboanga University",
+    workExperience: "Clerk, 2021-2024"
+  },
+  {
+    id: randomUUID(),
+    fullName: "Jose Reyes",
+    contactNumber: "09191234567",
+    email: "jose.reyes@example.com",
+    address: "Barangay Divisoria, Zamboanga City, Zamboanga del Sur",
+    educationalBackground: "Bachelor of Secondary Education - Universidad de Zamboanga",
+    workExperience: "Teacher Aide, 2020-2023"
+  },
+  {
+    id: randomUUID(),
+    fullName: "Ana Lopez",
+    contactNumber: "09201234567",
+    email: "ana.lopez@example.com",
+    address: "Barangay Tetuan, Zamboanga City, Zamboanga del Sur",
+    educationalBackground: "Bachelor of Science in Psychology - Universidad de Zamboanga",
+    workExperience: "HR Assistant, 2023-Present"
+  },
+  {
+    id: randomUUID(),
+    fullName: "Mark Villanueva",
+    contactNumber: "09211234567",
+    email: "mark.villanueva@example.com",
+    address: "Barangay Putik, Zamboanga City, Zamboanga del Sur",
+    educationalBackground: "Bachelor of Science in Computer Science - Western Mindanao State University",
+    workExperience: "IT Support Specialist, 2022-Present"
+  }
+];
 
 const applications: SeedApplication[] = [];
 
@@ -206,6 +252,33 @@ export async function ensureDepartments() {
 
     if (existing.rowCount === 0) {
       await query("INSERT INTO departments (id, name) VALUES ($1, $2)", [randomUUID(), dept.name]);
+    }
+  }
+}
+
+export async function ensureSampleApplicants() {
+  for (const applicant of applicants) {
+    const existing = await query<{ id: string }>(
+      "SELECT id FROM applicants WHERE LOWER(email) = LOWER($1) LIMIT 1",
+      [applicant.email]
+    );
+
+    if (existing.rowCount === 0) {
+      await query(
+        `INSERT INTO applicants (
+          id, full_name, contact_number, email, address,
+          educational_background, work_experience
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          applicant.id,
+          applicant.fullName,
+          applicant.contactNumber,
+          applicant.email,
+          applicant.address,
+          applicant.educationalBackground,
+          applicant.workExperience
+        ]
+      );
     }
   }
 }

@@ -1,6 +1,6 @@
 # Setup & Configuration Guide
 
-Complete guide to set up WMSU HR Connect for development and production.
+Complete guide to set up WMSU HRMO Tracker for development and production.
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
@@ -31,7 +31,7 @@ Complete guide to set up WMSU HR Connect for development and production.
 
 ```bash
 git clone <repository-url>
-cd wmsu-hr-connect
+cd wmsu-hrmo-tracker
 ```
 
 ### 2. Install Dependencies

@@ -14,7 +14,7 @@ import { PDFParse } from "pdf-parse";
 import nodemailer from "nodemailer";
 import { createHash, randomBytes } from "node:crypto";
 import { initDb, query, getArchiveDuration, setArchiveDuration } from "./db.js";
-import { ensureDepartments, ensureTestAccounts, seedIfEmpty } from "./seed.js";
+import { ensureDepartments, ensureSampleApplicants, ensureTestAccounts, seedIfEmpty } from "./seed.js";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
@@ -27,24 +27,6 @@ const TOKEN_EXPIRES_IN = (process.env.TOKEN_EXPIRES_IN ?? "7d") as SignOptions["
 const corsOrigins = (process.env.CORS_ORIGIN ?? "").split(",").map((origin) => origin.trim()).filter(Boolean);
 const trustProxy = process.env.TRUST_PROXY === "true";
 const EMAIL_ENABLED = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
-
-const DEFAULT_POSITION_TITLES = [
-  "Instructor III",
-  "Information Technology Officer I Repost",
-  "Attorney IV",
-  "Information Officer I",
-  "Administrative Aide VI (Clerk III)",
-  "Project Development Officer I",
-  "Internal Auditor I",
-  "Administrative Assistant III (Senior Bookkeeper)",
-  "Administrative Assistant III",
-  "SUC Vice President",
-  "Board Secretary V",
-  "Chief Administrative Officer",
-  "Administrative Aide VI",
-  "Administrative Assistant II",
-  "Administrative Officer I"
-];
 
 const app = express();
 app.set("trust proxy", trustProxy);
@@ -959,17 +941,135 @@ function cleanupExtractedText(value: string) {
   return value
     .replace(/\r/g, "")
     .replace(/\t/g, " ")
-    .replace(/(?<!\n)(Name Details|Contact Number|Phone|Mobile|Email|Address|Location|Educational Background|Education|Work Experience|Experience)\b/gi, "\n$1")
+    .replace(/(?<!\n)(Name Details|Surname|First Name|Middle Name|Name Extension|Date of Birth|Place of Birth|Sex|Civil Status|Citizenship|Residential Address|Permanent Address|Contact Number|Phone|Mobile|Email|Address|Location|Educational Background|Education|Work Experience|Experience)\b/gi, "\n$1")
     .replace(/[ ]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
+function splitExtractedLines(text: string) {
+  return text.split("\n").map((line) => line.trim()).filter(Boolean);
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeSingleLineValue(value: string) {
+  return value.replace(/\s+/g, " ").replace(/^[:\-\s]+|[:\-\s]+$/g, "").trim();
+}
+
+function isLikelyPdsHeading(value: string) {
+  return /personal data sheet|personal information|family background|educational background|civil service eligibility|work experience|voluntary work|learning and development|other information|references|surname|first name|middle name|name extension|residential address|permanent address|date of birth|place of birth|sex|civil status|citizenship|height|weight|blood type/i.test(value);
+}
+
+function extractValueNearLabel(lines: string[], labels: string[], stopLabels: string[] = [], maxLookahead = 3) {
+  const labelPattern = labels.map((label) => escapeRegex(label)).join("|");
+  const stopPattern = stopLabels.length ? stopLabels.map((label) => escapeRegex(label)).join("|") : "";
+  const labelRegex = new RegExp(`(?:${labelPattern})`, "i");
+  const stopRegex = stopPattern ? new RegExp(`(?:${stopPattern})`, "i") : null;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!labelRegex.test(line)) continue;
+
+    const inlineValue = normalizeSingleLineValue(
+      line.replace(new RegExp(`^.*?(?:${labelPattern})\\s*[:=\\-]?\\s*`, "i"), "")
+    );
+    if (inlineValue && !labelRegex.test(inlineValue) && !stopRegex?.test(inlineValue) && !isLikelyPdsHeading(inlineValue)) {
+      return inlineValue;
+    }
+
+    const collected: string[] = [];
+    for (let offset = 1; offset <= maxLookahead; offset += 1) {
+      const nextLine = lines[index + offset];
+      if (!nextLine) break;
+      if (labelRegex.test(nextLine) || stopRegex?.test(nextLine) || isLikelyPdsHeading(nextLine)) {
+        break;
+      }
+      collected.push(nextLine);
+      if (collected.join(" ").length >= 3) {
+        break;
+      }
+    }
+
+    if (collected.length > 0) {
+      const candidate = normalizeSingleLineValue(collected.join(" "));
+      if (candidate && !labelRegex.test(candidate) && !stopRegex?.test(candidate) && !isLikelyPdsHeading(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return "";
+}
+
+function extractChoiceNearLabel(lines: string[], labels: string[], choices: string[], stopLabels: string[] = []) {
+  const labelPattern = labels.map((label) => escapeRegex(label)).join("|");
+  const stopPattern = stopLabels.length ? stopLabels.map((label) => escapeRegex(label)).join("|") : "";
+  const labelRegex = new RegExp(`(?:${labelPattern})`, "i");
+  const stopRegex = stopPattern ? new RegExp(`(?:${stopPattern})`, "i") : null;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!labelRegex.test(line)) continue;
+
+    const candidates = [
+      normalizeSingleLineValue(line),
+      normalizeSingleLineValue(lines[index + 1] ?? ""),
+      normalizeSingleLineValue(lines[index + 2] ?? "")
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      if (stopRegex?.test(candidate)) continue;
+      for (const choice of choices) {
+        if (new RegExp(`\\b${escapeRegex(choice)}\\b`, "i").test(candidate)) {
+          return choice;
+        }
+      }
+    }
+  }
+
+  return "";
+}
+
+function normalizeDateCandidate(value: string) {
+  const cleaned = value.replace(/[^\d/\-]/g, " ").replace(/\s+/g, " ").trim();
+  const match = cleaned.match(/(\d{1,4})[\/\-](\d{1,2})[\/\-](\d{1,4})/);
+  if (!match) return "";
+
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  const third = Number(match[3]);
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  if (match[1].length === 4) {
+    return `${match[1]}-${pad(second)}-${pad(third)}`;
+  }
+
+  if (match[3].length === 4) {
+    if (first > 12 && second <= 12) {
+      return `${match[3]}-${pad(second)}-${pad(first)}`;
+    }
+
+    if (second > 12 && first <= 12) {
+      return `${match[3]}-${pad(first)}-${pad(second)}`;
+    }
+
+    return `${match[3]}-${pad(first)}-${pad(second)}`;
+  }
+
+  if (match[1].length === 2 && match[3].length === 2) {
+    return `${match[3].length === 2 ? `20${match[3]}` : match[3]}-${pad(first)}-${pad(second)}`;
+  }
+
+  return "";
+}
+
 function extractLabeledValue(text: string, labels: string[], stopLabels: string[] = []) {
-  const labelPart = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const stopPart = stopLabels.length
-    ? stopLabels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")
-    : "";
+  const labelPart = labels.map((label) => escapeRegex(label)).join("|");
+  const stopPart = stopLabels.length ? stopLabels.map((label) => escapeRegex(label)).join("|") : "";
 
   const regex = stopPart
     ? new RegExp(`(?:${labelPart})\\s*[:\\-]?\\s*(.+?)(?=\\b(?:${stopPart})\\b|$)`, "is")
@@ -986,7 +1086,7 @@ function normalizeEmailCandidate(value: string) {
 }
 
 function pickNameCandidate(lines: string[]) {
-  const excluded = /resume|curriculum vitae|profile|contact|email|phone|address|education|experience|objective|summary/i;
+  const excluded = /resume|curriculum vitae|profile|contact|email|phone|address|education|experience|objective|summary|personal data sheet|personal information|family background|educational background|civil service eligibility|work experience|voluntary work|learning and development|other information|references|surname|first name|middle name|name extension|residential address|permanent address|date of birth|place of birth|sex|civil status|citizenship|height|weight|blood type|elementary|secondary|college|vocational|graduate studies|school/i;
   return (
     lines.find((line) => {
       const clean = line.trim();
@@ -998,6 +1098,35 @@ function pickNameCandidate(lines: string[]) {
       return words.every((word) => /^[A-Za-z.'-]+$/.test(word));
     }) ?? ""
   );
+}
+
+function titleCaseName(value: string) {
+  return value
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+    .trim();
+}
+
+function extractNameFromPds(text: string) {
+  const lines = splitExtractedLines(text);
+  const surname = extractValueNearLabel(lines, ["surname", "last name"], ["first name", "middle name", "name extension", "date of birth", "sex", "civil status", "citizenship", "height", "weight", "blood type"]);
+  const firstName = extractValueNearLabel(lines, ["first name", "given name"], ["surname", "middle name", "name extension", "date of birth", "sex", "civil status", "citizenship", "height", "weight", "blood type"]);
+  const middleName = extractValueNearLabel(lines, ["middle name"], ["surname", "first name", "name extension", "date of birth", "sex", "civil status", "citizenship", "height", "weight", "blood type"]);
+  const extensionName = extractValueNearLabel(lines, ["name extension"], ["surname", "first name", "middle name", "date of birth", "sex", "civil status", "citizenship", "height", "weight", "blood type"]);
+
+  const orderedParts = [firstName, middleName, surname, extensionName]
+    .map(normalizeSingleLineValue)
+    .filter((part) => Boolean(part) && !isLikelyPdsHeading(part));
+
+  if (orderedParts.length > 0) {
+    return titleCaseName(orderedParts.join(" "));
+  }
+
+  const fallback = pickNameCandidate(lines);
+  return fallback ? titleCaseName(fallback) : "";
 }
 
 function pickSection(text: string, headings: string[]) {
@@ -1105,6 +1234,11 @@ function extractTelephoneNumber(text: string): string {
 }
 
 function extractDateOfBirth(text: string): string {
+  const lines = splitExtractedLines(text);
+  const labeled = extractValueNearLabel(lines, ["date of birth", "dob", "born"], ["place of birth", "sex", "civil status", "citizenship", "height", "weight", "blood type"]);
+  const normalizedLabeled = normalizeDateCandidate(labeled);
+  if (normalizedLabeled) return normalizedLabeled;
+
   const patterns = [
     /Date\s+of\s+Birth\s*[:=]?\s*([0-9]{1,2}[-\/]?[0-9]{1,2}[-\/]?[0-9]{2,4})/i,
     /DOB\s*[:=]?\s*([0-9]{1,2}[-\/]?[0-9]{1,2}[-\/]?[0-9]{2,4})/i,
@@ -1113,7 +1247,7 @@ function extractDateOfBirth(text: string): string {
   
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match) return normalizeDate(match[1]);
+    if (match) return normalizeDateCandidate(match[1]);
   }
   return "";
 }
@@ -1124,30 +1258,42 @@ function extractPlaceOfBirth(text: string): string {
 }
 
 function extractPermanentAddress(text: string): string {
+  const lines = splitExtractedLines(text);
+  const labeled = extractValueNearLabel(lines, ["permanent address"], ["current address", "residential address", "telephone", "email", "contact", "date of birth", "civil status", "citizenship", "sex", "height", "weight"]);
+  if (labeled) return labeled.slice(0, 200);
+
   const match = text.match(/Permanent\s+Address\s*[:=]?\s*([^\n]{5,200})/i);
-  return match ? match[1].trim().slice(0, 200) : extractLabeledValue(text, ["permanent address"], ["current address", "temporary"]).slice(0, 200);
+  return match ? normalizeSingleLineValue(match[1]).slice(0, 200) : extractLabeledValue(text, ["permanent address"], ["current address", "temporary"]).slice(0, 200);
 }
 
 function extractCurrentAddress(text: string): string {
+  const lines = splitExtractedLines(text);
+  const labeled = extractValueNearLabel(lines, ["current address", "residential address", "address"], ["permanent address", "telephone", "email", "contact", "date of birth", "civil status", "citizenship", "sex", "height", "weight"]);
+  if (labeled) return labeled.slice(0, 200);
+
   const match = text.match(/(?:Current|Residential)\s+Address\s*[:=]?\s*([^\n]{5,200})/i);
-  return match ? match[1].trim().slice(0, 200) : extractLabeledValue(text, ["address", "residential"], ["permanent", "contact"]).slice(0, 200);
+  return match ? normalizeSingleLineValue(match[1]).slice(0, 200) : extractLabeledValue(text, ["address", "residential"], ["permanent", "contact"]).slice(0, 200);
 }
 
 function extractSex(text: string): string {
-  if (/\b(?:female|girl|woman)\b/i.test(text)) return "Female";
-  if (/\b(?:male|boy|man)\b/i.test(text)) return "Male";
-  return "";
+  const lines = splitExtractedLines(text);
+  return extractChoiceNearLabel(lines, ["sex", "gender"], ["Male", "Female"], ["civil status", "citizenship", "height", "weight", "blood type"])
+    || (/\b(?:female|girl|woman)\b/i.test(text) ? "Female" : /\b(?:male|boy|man)\b/i.test(text) ? "Male" : "");
 }
 
 function extractCivilStatus(text: string): string {
+  const lines = splitExtractedLines(text);
   const statuses = ["Single", "Married", "Widowed", "Separated", "Divorced"];
-  for (const s of statuses) {
-    if (new RegExp(`\\b${s}\\b`, "i").test(text)) return s;
-  }
-  return "";
+  return extractChoiceNearLabel(lines, ["civil status"], statuses, ["citizenship", "height", "weight", "blood type"]) ||
+    statuses.find((s) => new RegExp(`\\b${s}\\b`, "i").test(text)) || "";
 }
 
 function extractCitizenship(text: string): string {
+  const lines = splitExtractedLines(text);
+  const choices = ["Filipino", "Dual Citizenship", "Natural Born Filipino", "Naturalized Filipino"];
+  const labeled = extractChoiceNearLabel(lines, ["citizenship"], choices, ["height", "weight", "blood type", "residential address", "permanent address"]);
+  if (labeled) return labeled;
+
   if (/\b(?:dual citizenship)\b/i.test(text)) return "Dual Citizenship";
   if (/\b(?:natural born|naturalized|foreign|alien|foreigner)\b/i.test(text)) {
     return /\bnatural\s+born\b/i.test(text) ? "Natural Born Filipino" : "Naturalized Filipino";
@@ -1157,6 +1303,12 @@ function extractCitizenship(text: string): string {
 }
 
 function extractCitizenshipDetails(text: string): string {
+  const lines = splitExtractedLines(text);
+  const labeled = extractValueNearLabel(lines, ["citizenship details", "dual citizenship"], ["height", "weight", "blood type", "residential address", "permanent address"]);
+  if (labeled) {
+    return normalizeSingleLineValue(labeled).slice(0, 200);
+  }
+
   const match = text.match(/Dual\s+Citizenship\s*[:=]?\s*(?:By\s+(Birth|Naturalization))?\s*(.{0,100})/i);
   if (match) return `By ${match[1] || ""}${match[2] ? ": " + match[2] : ""}`.trim();
   return "";
@@ -1344,7 +1496,7 @@ function parseApplicantDraftFromText(rawText: string): ParsedApplicantDraft {
   const addressMatch = extractCurrentAddress(text) || extractLabeledValue(text, ["address", "location"], ["education", "experience"]);
 
   return {
-    fullName: pickNameCandidate(lines).slice(0, 120),
+    fullName: extractNameFromPds(text).slice(0, 120),
     contactNumber: contactNumber.slice(0, 20),
     telephoneNumber: extractTelephoneNumber(text).slice(0, 20),
     email: emailMatch.slice(0, 120),
@@ -1996,18 +2148,10 @@ app.delete("/api/departments/:id", requireAuth, requireAdmin, asyncHandler(async
 }));
 
 app.get("/api/position-titles", asyncHandler(async (_req, res) => {
-  // include titles from job_vacancies and persisted custom position_titles table
-  const rows = await query<{ position_title: string }>(
-    "SELECT DISTINCT position_title FROM job_vacancies WHERE position_title IS NOT NULL"
-  );
-  const dynamicTitles = rows.rows
-    .map((row) => row.position_title?.trim())
-    .filter((title): title is string => Boolean(title));
-
   const customRows = await query<{ id: string; title: string }>("SELECT id, title FROM position_titles ORDER BY title");
   const customTitles = customRows.rows.map((r) => r.title?.trim()).filter((t): t is string => Boolean(t));
 
-  const merged = Array.from(new Set([...DEFAULT_POSITION_TITLES, ...dynamicTitles, ...customTitles]))
+  const merged = Array.from(new Set([...customTitles]))
     .sort((a, b) => a.localeCompare(b));
   res.json(merged);
 }));
@@ -3343,6 +3487,7 @@ async function start() {
   // await seedIfEmpty(); // All sample data has been removed
   await ensureDepartments();
   await ensureTestAccounts();
+  await ensureSampleApplicants();
   await ensureEmailTemplates();
   
   // Run archival jobs

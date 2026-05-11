@@ -81,7 +81,7 @@ server {
   listen 80;
   server_name yourdomain.com;
 
-  root /var/www/wmsu-hr-connect/frontend/dist;
+  root /var/www/wmsu-hrmo-tracker/frontend/dist;
   index index.html;
 
   location / {
@@ -113,7 +113,7 @@ curl http://localhost:4000/api/health
 
 ```bash
 # 1. Create app
-heroku create wmsu-hr-connect
+heroku create wmsu-hrmo-tracker
 
 # 2. Add PostgreSQL
 heroku addons:create heroku-postgresql:standard-0
@@ -168,7 +168,7 @@ node --version  # Verify
 
 # 4. Clone repository
 git clone <repo-url>
-cd wmsu-hr-connect
+cd wmsu-hrmo-tracker
 
 # 5. Install and build
 npm install
@@ -204,7 +204,7 @@ server {
   listen 80;
   server_name yourdomain.com;
 
-  root /home/ubuntu/wmsu-hr-connect/frontend/dist;
+  root /home/ubuntu/wmsu-hrmo-tracker/frontend/dist;
   index index.html;
 
   location /api {
@@ -256,8 +256,8 @@ CMD ["npm", "start"]
 
 **Deploy:**
 ```bash
-docker build -t wmsu-hr-connect .
-docker run -p 4000:4000 -e DATABASE_URL="..." wmsu-hr-connect
+docker build -t wmsu-hrmo-tracker .
+docker run -p 4000:4000 -e DATABASE_URL="..." wmsu-hrmo-tracker
 ```
 
 ## Post-Deployment

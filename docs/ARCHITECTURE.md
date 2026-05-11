@@ -1,6 +1,6 @@
 # System Architecture
 
-Overview of WMSU HR Connect's technical architecture and design.
+Overview of WMSU HRMO Tracker's technical architecture and design.
 
 ## Table of Contents
 - [High-Level Architecture](#high-level-architecture)

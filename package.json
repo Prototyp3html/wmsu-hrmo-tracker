@@ -1,7 +1,7 @@
 {
-  "name": "wmsu-hr-connect",
+  "name": "wmsu-hrmo-tracker",
   "version": "1.0.0",
-  "description": "WMSU HR Connect",
+  "description": "WMSU HRMO Tracker",
   "private": true,
   "workspaces": [
     "frontend",

@@ -1,4 +1,4 @@
-# WMSU HR Connect
+# WMSU HRMO Tracker
 
 A comprehensive Human Resources Management Office (HRMO) application for Western Mindanao State University (WMSU).
 
@@ -40,7 +40,7 @@ npm run dev:backend
 ## 📁 Project Structure
 
 ```
-wmsu-hr-connect/
+wmsu-hrmo-tracker/
 ├── backend/                         # Node.js + Express + PostgreSQL
 │   ├── src/
 │   │   ├── index.ts                # Main server, routes, API endpoints
@@ -324,7 +324,7 @@ This is the recommended option if you want it to feel like a normal web app with
 Desktop icon setup:
 
 - Double-click `Create Desktop Shortcut.cmd` once
-- It creates a `WMSU HR Connect` icon on the desktop
+- It creates a `WMSU HRMO Tracker` icon on the desktop
 - HR staff can then open the system by clicking that desktop icon
 
 ## Workspace layout

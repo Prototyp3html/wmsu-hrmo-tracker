@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to WMSU HR Connect are documented in this file.
+All notable changes to WMSU HRMO Tracker are documented in this file.
 
 ## [1.1.0] - May 7, 2026 (Enhanced PDS Scanner)
 
