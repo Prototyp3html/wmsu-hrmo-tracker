@@ -24,7 +24,7 @@ import {
 } from "@/lib/api";
 import type { Applicant, ApplicantDocument, Application, ParsedApplicantDraft } from "@/lib/types";
 import { getStatusColor } from "@/lib/status";
-import { Plus, Search, Mail, Phone, MapPin, GraduationCap, Briefcase, Upload, Check, ChevronsUpDown, Download, Eye, Printer } from "lucide-react";
+import { Plus, Search, Mail, Phone, MapPin, GraduationCap, Briefcase, Upload, Check, ChevronsUpDown, Download, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "react-router-dom";
 
@@ -5047,15 +5047,6 @@ export default function Applicants() {
                   <div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between">
                     <DialogTitle className="pr-2">{applicant.fullName}</DialogTitle>
                     <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => { handlePrintApplicant(); }}
-                      >
-                        <Printer className="mr-2 h-4 w-4" />
-                        Print
-                      </Button>
                       <Button
                         type="button"
                         variant="outline"
