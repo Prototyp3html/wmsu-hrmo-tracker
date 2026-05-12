@@ -1750,10 +1750,7 @@ export default function Applicants() {
         txt("Signature", ML, y + sigH - 7, sigW, 5, 6.5, false, BLACK, "center");
         pdf.setDrawColor(...DGRAY); pdf.setLineWidth(0.3);
         pdf.line(ML+6, y + sigH - 8, ML + sigW - 6, y + sigH - 8);
-        txt("Date", ML, y + sigH - 2.5, sigW/2, 5, 6.5, false, BLACK, "center");
-        pdf.line(ML + sigW/2 + 2, y + sigH - 3.5, ML + sigW - 4, y + sigH - 3.5);
-
-        // Right: Administering officer
+// Right: Administering officer
         fillR(ML + sigW, y, sigW, sigH, WHITE); borderR(ML + sigW, y, sigW, sigH, 0.3);
         pdf.setFontSize(6); pdf.setFont("helvetica","normal"); pdf.setTextColor(0,0,0);
         const sworn = "SUBSCRIBED AND SWORN to before me this ___ day of ______________, ______ at _________________________, Philippines.";
