@@ -1369,12 +1369,10 @@ export default function Applicants() {
 
         // ── top meta bar ─────────────────────────────────────────────────
         const metaH = 8;
-        const csFormW = 38;
-        fillR(ML, y, CW - csFormW, metaH, STRIP_BG);
-        borderR(ML, y, CW - csFormW, metaH);
-        txt("CS Form No. 212", ML, y, CW - csFormW, metaH / 2, 6.5, true, BLACK, "center");
-        txt("Revised 2017", ML, y + metaH / 2, CW - csFormW, metaH / 2, 6, false, DGRAY, "center");
-        vc("Page 1 of 4", ML + CW - csFormW, y, csFormW, metaH, 6);
+        fillR(ML, y, CW, metaH, STRIP_BG);
+        borderR(ML, y, CW, metaH);
+        txt("CS Form No. 212", ML, y, CW, metaH / 2, 6.5, true, BLACK, "center");
+        txt("Revised 2017", ML, y + metaH / 2, CW, metaH / 2, 6, false, DGRAY, "center");
         y += metaH;
 
         // ── title ─────────────────────────────────────────────────────────
@@ -1578,14 +1576,7 @@ export default function Applicants() {
           y += 6;
         }
 
-        // ══════════════════════════════════════════════════════════════════
-        //  PAGE 2
-        // ══════════════════════════════════════════════════════════════════
-        newPage();
-        fillR(ML, y, CW, 5, SEC_BG);
-        borderR(ML, y, CW, 5, 0.2);
-        txt("PERSONAL DATA SHEET  (Continuation — Page 2)", ML, y, CW, 5, 8, true, WHITE, "center");
-        y += 5;
+       
 
         // ══ IV. Civil Service Eligibility ════════════════════════════════
         const csW3 = [CW*0.30, CW*0.10, CW*0.13, CW*0.22, CW*0.13, CW-(CW*0.30+CW*0.10+CW*0.13+CW*0.22+CW*0.13)];
@@ -1635,15 +1626,6 @@ export default function Applicants() {
           for (let j=0;j<weW.length;j++) { vc(vals[j]||"",wx2,y,weW[j],6); wx2+=weW[j]; }
           y+=6;
         }
-
-        // ══════════════════════════════════════════════════════════════════
-        //  PAGE 3
-        // ══════════════════════════════════════════════════════════════════
-        newPage();
-        fillR(ML, y, CW, 5, SEC_BG);
-        borderR(ML, y, CW, 5, 0.2);
-        txt("PERSONAL DATA SHEET  (Continuation — Page 3)", ML, y, CW, 5, 8, true, WHITE, "center");
-        y += 5;
 
         // ══ VI. Voluntary Work ═══════════════════════════════════════════
         const vwW = [CW*0.38, CW*0.12, CW*0.12, CW*0.10, CW-(CW*0.38+CW*0.12*2+CW*0.10)];
@@ -1717,15 +1699,8 @@ export default function Applicants() {
           const parts = (refLines[i]||"").split("|");
           tblRow([{w:refW[0],val:parts[0]||""},{w:refW[1],val:parts[1]||""},{w:refW[2],val:parts[2]||""}], 6);
         }
-
-        // ══════════════════════════════════════════════════════════════════
-        //  PAGE 4  — Declaration & Signature
-        // ══════════════════════════════════════════════════════════════════
-        newPage();
-        fillR(ML, y, CW, 5, SEC_BG);
-        borderR(ML, y, CW, 5, 0.2);
-        txt("PERSONAL DATA SHEET  (Continuation — Page 4)", ML, y, CW, 5, 8, true, WHITE, "center");
-        y += 5 + 3;
+ guard(60); // ensure enough room for declaration + signature block
+        y += 3;
 
         // Declaration
         const declH = 22;
@@ -1750,7 +1725,8 @@ export default function Applicants() {
         txt("Signature", ML, y + sigH - 7, sigW, 5, 6.5, false, BLACK, "center");
         pdf.setDrawColor(...DGRAY); pdf.setLineWidth(0.3);
         pdf.line(ML+6, y + sigH - 8, ML + sigW - 6, y + sigH - 8);
-// Right: Administering officer
+
+        // Right: Administering officer
         fillR(ML + sigW, y, sigW, sigH, WHITE); borderR(ML + sigW, y, sigW, sigH, 0.3);
         pdf.setFontSize(6); pdf.setFont("helvetica","normal"); pdf.setTextColor(0,0,0);
         const sworn = "SUBSCRIBED AND SWORN to before me this ___ day of ______________, ______ at _________________________, Philippines.";
