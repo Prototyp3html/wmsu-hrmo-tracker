@@ -165,9 +165,14 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
                     value={panelist.scores[key] ?? ""}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     onChange={(e) => {
+                      let val = e.target.value ? Number(e.target.value) : undefined;
+                      if (val !== undefined) {
+                        if (val < 0) val = 0;
+                        if (val > data.max) val = data.max;
+                      }
                       const updated = panelists.map((p, i) =>
                         i === pIdx
-                          ? { ...p, scores: { ...p.scores, [key]: e.target.value ? Number(e.target.value) : undefined } }
+                          ? { ...p, scores: { ...p.scores, [key]: val } }
                           : p
                       );
                       setPanelists(updated);
