@@ -124,23 +124,35 @@ export interface StatusHistory {
   updatedAt: string;
 }
 
+export interface PanelistScores {
+  [key: string]: number | undefined; // criterion -> score
+}
+
+export interface Panelist {
+  id: string;
+  name: string;
+  scores: PanelistScores;
+}
+
 export interface Evaluation {
   id: string;
   applicationId: string;
   positionLevel: "first_level" | "second_level";
-  communicationSkills?: number;
-  abilityToPresent?: number;
-  alertness?: number;
-  judgement?: number;
-  emotionalStability?: number;
-  selfConfidence?: number;
+  panelists: Panelist[];
+  // Calculated averages from panelist scores
+  communicationSkillsAvg?: number;
+  abilityToPresentAvg?: number;
+  alertnessAvg?: number;
+  judgementAvg?: number;
+  emotionalStabilityAvg?: number;
+  selfConfidenceAvg?: number;
   firstLevelTotal?: number;
-  oralCommunication?: number;
-  analyticalAbility?: number;
-  initiative?: number;
-  stressTolerance?: number;
-  sensitivity?: number;
-  serviceOrientation?: number;
+  oralCommunicationAvg?: number;
+  analyticalAbilityAvg?: number;
+  initiativeAvg?: number;
+  stressToleranceAvg?: number;
+  sensitivityAvg?: number;
+  serviceOrientationAvg?: number;
   secondLevelTotal?: number;
   totalScore: number;
   remarks: string;
