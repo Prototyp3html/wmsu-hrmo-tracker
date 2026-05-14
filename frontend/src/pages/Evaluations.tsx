@@ -14,9 +14,199 @@ import {
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createEvaluation, fetchApplicants, fetchApplications, fetchEvaluations, fetchJobs, updateEvaluation, deleteEvaluation } from "@/lib/api";
-import { Award, Trophy, Pencil, Trash2, Info, Ellipsis } from "lucide-react";
+import { Award, Trophy, Pencil, Trash2, Info, Ellipsis, X, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Evaluation } from "@/lib/types";
+import type { Evaluation, Panelist, PanelistScores } from "@/lib/types";
+
+interface FormPanelist {
+  id: string;
+  name: string;
+  scores: PanelistScores;
+}
+
+const FIRST_LEVEL_CRITERIA = {
+  communicationSkills: { name: "Communication Skills", max: 10 },
+  abilityToPresent: { name: "Ability to Present Ideas", max: 5 },
+  alertness: { name: "Alertness", max: 5 },
+  judgement: { name: "Judgement", max: 5 },
+  emotionalStability: { name: "Emotional Stability", max: 5 },
+  selfConfidence: { name: "Self-Confidence", max: 5 }
+};
+
+const SECOND_LEVEL_CRITERIA = {
+  oralCommunication: { name: "Oral Communication", max: 100 },
+  analyticalAbility: { name: "Analytical Ability", max: 100 },
+  judgement: { name: "Judgement", max: 100 },
+  initiative: { name: "Initiative", max: 100 },
+  stressTolerance: { name: "Stress Tolerance", max: 100 },
+  sensitivity: { name: "Sensitivity", max: 100 },
+  serviceOrientation: { name: "Service Orientation", max: 100 }
+};
+
+// ─── Helpers (defined once, outside any component) ───────────────────────────
+
+function calculateAverages(
+  panelists: FormPanelist[],
+  criteria: typeof FIRST_LEVEL_CRITERIA | typeof SECOND_LEVEL_CRITERIA
+) {
+  const averages: Record<string, number> = {};
+  Object.keys(criteria).forEach((criterionKey) => {
+    const scores = panelists
+      .map((p) => p.scores[criterionKey])
+      .filter((s): s is number => s !== undefined);
+    if (scores.length > 0) {
+      averages[`${criterionKey}Avg`] = scores.reduce((a, b) => a + b, 0) / scores.length;
+    }
+  });
+  return averages;
+}
+
+function calculateTotalScore(
+  panelists: FormPanelist[],
+  criteria: typeof FIRST_LEVEL_CRITERIA | typeof SECOND_LEVEL_CRITERIA
+) {
+  const averages = calculateAverages(panelists, criteria);
+  const avgValues = Object.values(averages);
+  if (avgValues.length === 0) return 0;
+  return avgValues.reduce((a, b) => a + b, 0) / avgValues.length;
+}
+
+// ─── Sub-components (defined outside Evaluations so React never remounts them) ─
+
+interface EvalFormProps {
+  panelists: FormPanelist[];
+  setPanelists: (p: FormPanelist[]) => void;
+  criteria?: typeof FIRST_LEVEL_CRITERIA | typeof SECOND_LEVEL_CRITERIA;
+  level: "first_level" | "second_level";
+}
+
+function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
+  const activeCriteria = criteria ?? (level === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA);
+
+  const handleAddPanelist = () => {
+    setPanelists([...panelists, { id: Math.random().toString(36), name: "", scores: {} }]);
+  };
+
+  const handleRemovePanelist = (id: string) => {
+    if (panelists.length > 1) {
+      setPanelists(panelists.filter((p) => p.id !== id));
+    }
+  };
+
+  const isFirst = level === "first_level";
+
+  return (
+    <div className="space-y-4">
+      <div className={`border rounded p-3 flex gap-2 ${isFirst ? "bg-blue-50 border-blue-200" : "bg-green-50 border-green-200"}`}>
+        <Info className={`w-4 h-4 mt-0.5 flex-shrink-0 ${isFirst ? "text-blue-600" : "text-green-600"}`} />
+        <p className={`text-sm ${isFirst ? "text-blue-800" : "text-green-800"}`}>
+          {isFirst ? "First" : "Second"} Level Administrative Position Assessment
+        </p>
+      </div>
+
+      {/* Panelists Section */}
+      <div className="space-y-3 border rounded p-4 bg-muted/30">
+        <div className="flex items-center justify-between">
+          <Label className="text-base font-semibold">Panel of Evaluators</Label>
+          <Button type="button" variant="outline" size="sm" onClick={handleAddPanelist}>
+            <Plus className="w-4 h-4 mr-2" />
+            Add Panelist
+          </Button>
+        </div>
+
+        {panelists.map((panelist, pIdx) => (
+          <div key={panelist.id} className="space-y-2 p-3 bg-background border rounded">
+            <div className="flex items-end gap-3">
+              <div className="flex-1 space-y-2">
+                <Label className="text-sm">Panelist {pIdx + 1} Name</Label>
+                <input
+                  type="text"
+                  autoComplete="off"
+                  spellCheck="false"
+                  placeholder="Enter panelist name"
+                  value={panelist.name}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  onChange={(e) => {
+                    const updated = panelists.map((p, i) =>
+                      i === pIdx ? { ...p, name: e.target.value } : p
+                    );
+                    setPanelists(updated);
+                  }}
+                />
+              </div>
+              {panelists.length > 1 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={() => handleRemovePanelist(panelist.id)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+
+            {/* Criteria for this panelist */}
+            <div className="grid grid-cols-2 gap-3 mt-3 p-2 bg-muted/50 rounded">
+              {Object.entries(activeCriteria).map(([key, data]) => (
+                <div key={key} className="space-y-1">
+                  <Label className="text-xs flex justify-between">
+                    <span>{data.name}</span>
+                    <span className="text-muted-foreground">/{data.max}</span>
+                  </Label>
+                  <input
+                    type="number"
+                    autoComplete="off"
+                    spellCheck="false"
+                    min={0}
+                    max={data.max}
+                    placeholder={`0-${data.max}`}
+                    value={panelist.scores[key] ?? ""}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    onChange={(e) => {
+                      const updated = panelists.map((p, i) =>
+                        i === pIdx
+                          ? { ...p, scores: { ...p.scores, [key]: e.target.value ? Number(e.target.value) : undefined } }
+                          : p
+                      );
+                      setPanelists(updated);
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Averages Display */}
+      {panelists.length > 0 && (
+        <div className="space-y-2 p-3 bg-green-50 border border-green-200 rounded">
+          <Label className="text-sm font-semibold text-green-900">Calculated Averages</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(calculateAverages(panelists, activeCriteria)).map(([key, avg]) => {
+              const criterionKey = key.replace("Avg", "");
+              const criterionData = (activeCriteria as any)[criterionKey];
+              const criterionName = criterionData?.name || criterionKey;
+              return (
+                <div key={key} className="text-xs">
+                  <span className="font-medium">{criterionName}:</span>
+                  <span className="ml-2 text-green-700 font-semibold">{avg.toFixed(2)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="text-sm font-bold text-green-900 mt-2 pt-2 border-t border-green-200">
+            General Average: {calculateTotalScore(panelists, activeCriteria).toFixed(2)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Evaluations() {
   const { toast } = useToast();
@@ -25,29 +215,19 @@ export default function Evaluations() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [editingEvaluationId, setEditingEvaluationId] = useState<string | null>(null);
-  const [selectedAppId, setSelectedAppId] = useState<string>("");
   const [positionFilter, setPositionFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState<"all" | "first_level" | "second_level">("all");
-  
-  const [formState, setFormState] = useState({
-    applicationId: "",
-    positionLevel: "first_level" as "first_level" | "second_level",
-    communicationSkills: "",
-    abilityToPresent: "",
-    alertness: "",
-    judgement: "",
-    emotionalStability: "",
-    selfConfidence: "",
-    oralCommunication: "",
-    analyticalAbility: "",
-    initiative: "",
-    stressTolerance: "",
-    sensitivity: "",
-    serviceOrientation: "",
-    remarks: ""
-  });
 
-  const [editFormState, setEditFormState] = useState(formState);
+  // Form state for panelists
+  const [formPanelists, setFormPanelists] = useState<FormPanelist[]>([
+    { id: Math.random().toString(36), name: "", scores: {} }
+  ]);
+  const [formRemarks, setFormRemarks] = useState("");
+  const [formApplicationId, setFormApplicationId] = useState("");
+
+  // Edit form state for panelists
+  const [editPanelists, setEditPanelists] = useState<FormPanelist[]>([]);
+  const [editRemarks, setEditRemarks] = useState("");
 
   const { data: evaluations = [] } = useQuery({
     queryKey: ["evaluations"],
@@ -73,23 +253,9 @@ export default function Evaluations() {
     mutationFn: createEvaluation,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["evaluations"] });
-      setFormState({
-        applicationId: "",
-        positionLevel: "first_level",
-        communicationSkills: "",
-        abilityToPresent: "",
-        alertness: "",
-        judgement: "",
-        emotionalStability: "",
-        selfConfidence: "",
-        oralCommunication: "",
-        analyticalAbility: "",
-        initiative: "",
-        stressTolerance: "",
-        sensitivity: "",
-        serviceOrientation: "",
-        remarks: ""
-      });
+      setFormPanelists([{ id: Math.random().toString(36), name: "", scores: {} }]);
+      setFormRemarks("");
+      setFormApplicationId("");
       toast({ title: "Evaluation saved", description: "Assessment form was recorded." });
     },
     onError: (error) => {
@@ -133,33 +299,23 @@ export default function Evaluations() {
     return (vacancy as any)?.positionLevel ?? "first_level";
   };
 
-  const selectedAppVacantcy = applications.find((a) => a.id === selectedAppId);
-  const vacancyLevel = selectedAppVacantcy ? getVacancyLevel(selectedAppVacantcy.vacancyId) : "first_level";
-
-  const handleOpenEdit = (evaluation: Evaluation) => {
-    setEditingEvaluationId(evaluation.id);
-    setEditFormState({
-      applicationId: evaluation.applicationId,
-      positionLevel: evaluation.positionLevel,
-      communicationSkills: String(evaluation.communicationSkills ?? ""),
-      abilityToPresent: String(evaluation.abilityToPresent ?? ""),
-      alertness: String(evaluation.alertness ?? ""),
-      judgement: String(evaluation.judgement ?? ""),
-      emotionalStability: String(evaluation.emotionalStability ?? ""),
-      selfConfidence: String(evaluation.selfConfidence ?? ""),
-      oralCommunication: String(evaluation.oralCommunication ?? ""),
-      analyticalAbility: String(evaluation.analyticalAbility ?? ""),
-      initiative: String(evaluation.initiative ?? ""),
-      stressTolerance: String(evaluation.stressTolerance ?? ""),
-      sensitivity: String(evaluation.sensitivity ?? ""),
-      serviceOrientation: String(evaluation.serviceOrientation ?? ""),
-      remarks: evaluation.remarks ?? ""
-    });
-    setShowEdit(true);
-  };
+  const selectedAppVacancy = applications.find((a) => a.id === formApplicationId);
+  const vacancyLevel = selectedAppVacancy ? getVacancyLevel(selectedAppVacancy.vacancyId) : "first_level";
 
   const editingEvaluation = evaluations.find((ev) => ev.id === editingEvaluationId) ?? null;
   const editingApplication = applications.find((app) => app.id === editingEvaluation?.applicationId) ?? null;
+
+  const handleOpenEdit = (evaluation: Evaluation) => {
+    setEditingEvaluationId(evaluation.id);
+    const panelists = evaluation.panelists || [];
+    setEditPanelists(panelists.map((p) => ({
+      id: p.id,
+      name: p.name,
+      scores: { ...p.scores }
+    })));
+    setEditRemarks(evaluation.remarks ?? "");
+    setShowEdit(true);
+  };
 
   const evaluationRows = useMemo(() => {
     return evaluations
@@ -185,292 +341,97 @@ export default function Evaluations() {
     });
   }, [evaluationRows, positionFilter, levelFilter]);
 
-  const FirstLevelForm = ({ state, setState }: any) => (
-    <div className="space-y-4">
-      <div className="bg-blue-50 border border-blue-200 rounded p-3 flex gap-2">
-        <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-        <p className="text-sm text-blue-800">First Level Administrative Position Assessment</p>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Communication Skills</span>
-            <span className="text-xs text-muted-foreground">/10</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={10}
-            placeholder="0-10"
-            value={state.communicationSkills}
-            onChange={(e) => setState((prev: any) => ({ ...prev, communicationSkills: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Ability to Present Ideas</span>
-            <span className="text-xs text-muted-foreground">/5</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={5}
-            placeholder="0-5"
-            value={state.abilityToPresent}
-            onChange={(e) => setState((prev: any) => ({ ...prev, abilityToPresent: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Alertness</span>
-            <span className="text-xs text-muted-foreground">/5</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={5}
-            placeholder="0-5"
-            value={state.alertness}
-            onChange={(e) => setState((prev: any) => ({ ...prev, alertness: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Judgement</span>
-            <span className="text-xs text-muted-foreground">/5</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={5}
-            placeholder="0-5"
-            value={state.judgement}
-            onChange={(e) => setState((prev: any) => ({ ...prev, judgement: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Emotional Stability</span>
-            <span className="text-xs text-muted-foreground">/5</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={5}
-            placeholder="0-5"
-            value={state.emotionalStability}
-            onChange={(e) => setState((prev: any) => ({ ...prev, emotionalStability: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Self-Confidence</span>
-            <span className="text-xs text-muted-foreground">/5</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={5}
-            placeholder="0-5"
-            value={state.selfConfidence}
-            onChange={(e) => setState((prev: any) => ({ ...prev, selfConfidence: e.target.value }))}
-          />
-        </div>
-      </div>
-    </div>
-  );
-
-  const SecondLevelForm = ({ state, setState }: any) => (
-    <div className="space-y-4">
-      <div className="bg-green-50 border border-green-200 rounded p-3 flex gap-2">
-        <Info className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-        <p className="text-sm text-green-800">Second Level Administrative Position Assessment</p>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Oral Communication</span>
-            <span className="text-xs text-muted-foreground">/15%</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            placeholder="0-100"
-            value={state.oralCommunication}
-            onChange={(e) => setState((prev: any) => ({ ...prev, oralCommunication: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Analytical Ability</span>
-            <span className="text-xs text-muted-foreground">/15%</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            placeholder="0-100"
-            value={state.analyticalAbility}
-            onChange={(e) => setState((prev: any) => ({ ...prev, analyticalAbility: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Judgement</span>
-            <span className="text-xs text-muted-foreground">/15%</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            placeholder="0-100"
-            value={state.judgement}
-            onChange={(e) => setState((prev: any) => ({ ...prev, judgement: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Initiative</span>
-            <span className="text-xs text-muted-foreground">/15%</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            placeholder="0-100"
-            value={state.initiative}
-            onChange={(e) => setState((prev: any) => ({ ...prev, initiative: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Stress Tolerance</span>
-            <span className="text-xs text-muted-foreground">/15%</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            placeholder="0-100"
-            value={state.stressTolerance}
-            onChange={(e) => setState((prev: any) => ({ ...prev, stressTolerance: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Sensitivity</span>
-            <span className="text-xs text-muted-foreground">/15%</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            placeholder="0-100"
-            value={state.sensitivity}
-            onChange={(e) => setState((prev: any) => ({ ...prev, sensitivity: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="flex justify-between">
-            <span>Service Orientation</span>
-            <span className="text-xs text-muted-foreground">/15%</span>
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            placeholder="0-100"
-            value={state.serviceOrientation}
-            onChange={(e) => setState((prev: any) => ({ ...prev, serviceOrientation: e.target.value }))}
-          />
-        </div>
-      </div>
-    </div>
-  );
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold font-display text-foreground">Evaluations</h1>
-          <p className="text-sm text-muted-foreground mt-1">Score and rank applicants using WMSU assessment forms</p>
+          <p className="text-sm text-muted-foreground mt-1">Score and rank applicants using WMSU assessment forms with multiple panelists</p>
         </div>
         <Dialog>
           <DialogTrigger asChild>
-            <Button><Award className="w-4 h-4 mr-2" /> Add Evaluation</Button>
+            <Button><Award className="w-4 h-4 mr-2" /> Add Application</Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Add Evaluation</DialogTitle></DialogHeader>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Add Application for Evaluation</DialogTitle></DialogHeader>
             <form className="space-y-4" onSubmit={(e) => {
               e.preventDefault();
-              if (!formState.applicationId) return;
+
+              if (!formApplicationId) {
+                toast({ title: "Error", description: "Please select an application", variant: "destructive" });
+                return;
+              }
+
+              if (formPanelists.some((p) => !p.name.trim())) {
+                toast({ title: "Error", description: "All panelists must have names", variant: "destructive" });
+                return;
+              }
+
+              const criteria = vacancyLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA;
+              const totalScore = calculateTotalScore(formPanelists, criteria);
+
               createMutation.mutate({
-                applicationId: formState.applicationId,
+                applicationId: formApplicationId,
                 positionLevel: vacancyLevel,
-                communicationSkills: formState.communicationSkills ? Number(formState.communicationSkills) : undefined,
-                abilityToPresent: formState.abilityToPresent ? Number(formState.abilityToPresent) : undefined,
-                alertness: formState.alertness ? Number(formState.alertness) : undefined,
-                judgement: formState.judgement ? Number(formState.judgement) : undefined,
-                emotionalStability: formState.emotionalStability ? Number(formState.emotionalStability) : undefined,
-                selfConfidence: formState.selfConfidence ? Number(formState.selfConfidence) : undefined,
-                oralCommunication: formState.oralCommunication ? Number(formState.oralCommunication) : undefined,
-                analyticalAbility: formState.analyticalAbility ? Number(formState.analyticalAbility) : undefined,
-                initiative: formState.initiative ? Number(formState.initiative) : undefined,
-                stressTolerance: formState.stressTolerance ? Number(formState.stressTolerance) : undefined,
-                sensitivity: formState.sensitivity ? Number(formState.sensitivity) : undefined,
-                serviceOrientation: formState.serviceOrientation ? Number(formState.serviceOrientation) : undefined,
-                remarks: formState.remarks
-              });
+                panelists: formPanelists.map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  scores: p.scores
+                })),
+                ...calculateAverages(formPanelists, criteria),
+                totalScore,
+                remarks: formRemarks
+              } as any);
             }}>
               <div className="space-y-2">
                 <Label>Application</Label>
-                <Select value={formState.applicationId} onValueChange={(value) => {
-                  setSelectedAppId(value);
-                  setFormState((prev) => ({ ...prev, applicationId: value }));
-                }}>
+                <Select value={formApplicationId} onValueChange={setFormApplicationId}>
                   <SelectTrigger><SelectValue placeholder="Select application" /></SelectTrigger>
                   <SelectContent>
-                    {applications.filter(app => !evaluations.some(e => e.applicationId === app.id)).map((app) => (
-                      <SelectItem key={app.id} value={app.id}>
-                        {getApplicantName(app.applicantId)} — {getVacancyTitle(app.vacancyId)}
-                      </SelectItem>
-                    ))}
+                    {applications
+                      .filter((app) => !evaluations.some((e) => e.applicationId === app.id))
+                      .map((app) => (
+                        <SelectItem key={app.id} value={app.id}>
+                          {getApplicantName(app.applicantId)} — {getVacancyTitle(app.vacancyId)}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              {formState.applicationId && vacancyLevel === "first_level" && (
-                <FirstLevelForm state={formState} setState={setFormState} />
+              {formApplicationId && (
+                <EvalForm
+                  panelists={formPanelists}
+                  setPanelists={setFormPanelists}
+                  level={vacancyLevel as "first_level" | "second_level"}
+                />
               )}
 
-              {formState.applicationId && vacancyLevel === "second_level" && (
-                <SecondLevelForm state={formState} setState={setFormState} />
-              )}
               <div className="space-y-2">
                 <Label>Remarks</Label>
                 <Textarea
                   placeholder="Assessment remarks..."
-                  value={formState.remarks}
-                  onChange={(e) => setFormState((prev) => ({ ...prev, remarks: e.target.value }))}
+                  value={formRemarks}
+                  onChange={(e) => setFormRemarks(e.target.value)}
                 />
               </div>
-              <Button className="w-full" type="submit" disabled={createMutation.isPending}>Save Assessment</Button>
+              <Button className="w-full" type="submit" disabled={createMutation.isPending}>
+                Save Assessment
+              </Button>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
+      {/* Edit Dialog */}
       <Dialog
         open={showEdit}
         onOpenChange={(open) => {
           setShowEdit(open);
-          if (!open) {
-            setEditingEvaluationId(null);
-          }
+          if (!open) setEditingEvaluationId(null);
         }}
       >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Evaluation</DialogTitle></DialogHeader>
           <div className="space-y-1 text-sm text-muted-foreground">
             <p>Applicant: {editingApplication ? getApplicantName(editingApplication.applicantId) : "Unknown"}</p>
@@ -481,47 +442,55 @@ export default function Evaluations() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!editingEvaluationId) return;
+
+              if (editPanelists.some((p) => !p.name.trim())) {
+                toast({ title: "Error", description: "All panelists must have names", variant: "destructive" });
+                return;
+              }
+
+              const criteria = editingEvaluation?.positionLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA;
+              const totalScore = calculateTotalScore(editPanelists, criteria);
+
               updateMutation.mutate({
                 id: editingEvaluationId,
                 payload: {
-                  positionLevel: editFormState.positionLevel,
-                  communicationSkills: editFormState.communicationSkills ? Number(editFormState.communicationSkills) : undefined,
-                  abilityToPresent: editFormState.abilityToPresent ? Number(editFormState.abilityToPresent) : undefined,
-                  alertness: editFormState.alertness ? Number(editFormState.alertness) : undefined,
-                  judgement: editFormState.judgement ? Number(editFormState.judgement) : undefined,
-                  emotionalStability: editFormState.emotionalStability ? Number(editFormState.emotionalStability) : undefined,
-                  selfConfidence: editFormState.selfConfidence ? Number(editFormState.selfConfidence) : undefined,
-                  oralCommunication: editFormState.oralCommunication ? Number(editFormState.oralCommunication) : undefined,
-                  analyticalAbility: editFormState.analyticalAbility ? Number(editFormState.analyticalAbility) : undefined,
-                  initiative: editFormState.initiative ? Number(editFormState.initiative) : undefined,
-                  stressTolerance: editFormState.stressTolerance ? Number(editFormState.stressTolerance) : undefined,
-                  sensitivity: editFormState.sensitivity ? Number(editFormState.sensitivity) : undefined,
-                  serviceOrientation: editFormState.serviceOrientation ? Number(editFormState.serviceOrientation) : undefined,
-                  remarks: editFormState.remarks
-                }
+                  positionLevel: editingEvaluation?.positionLevel,
+                  panelists: editPanelists.map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    scores: p.scores
+                  })),
+                  ...calculateAverages(editPanelists, criteria),
+                  totalScore,
+                  remarks: editRemarks
+                } as any
               });
             }}
           >
-            {editingEvaluation?.positionLevel === "first_level" && (
-              <FirstLevelForm state={editFormState} setState={setEditFormState} />
+            {editingEvaluation && (
+              <EvalForm
+                panelists={editPanelists}
+                setPanelists={setEditPanelists}
+                level={editingEvaluation.positionLevel as "first_level" | "second_level"}
+              />
             )}
 
-            {editingEvaluation?.positionLevel === "second_level" && (
-              <SecondLevelForm state={editFormState} setState={setEditFormState} />
-            )}
             <div className="space-y-2">
               <Label>Remarks</Label>
               <Textarea
                 placeholder="Assessment remarks..."
-                value={editFormState.remarks}
-                onChange={(e) => setEditFormState((prev) => ({ ...prev, remarks: e.target.value }))}
+                value={editRemarks}
+                onChange={(e) => setEditRemarks(e.target.value)}
               />
             </div>
-            <Button className="w-full" type="submit" disabled={updateMutation.isPending}>Update Assessment</Button>
+            <Button className="w-full" type="submit" disabled={updateMutation.isPending}>
+              Update Assessment
+            </Button>
           </form>
         </DialogContent>
       </Dialog>
 
+      {/* Delete Confirm Dialog */}
       <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -532,25 +501,30 @@ export default function Evaluations() {
           </DialogHeader>
           <div className="flex gap-3 justify-end">
             <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
-            <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => {
-              if (deleteTarget) {
-                deleteMutation.mutate(deleteTarget);
-                setShowDeleteConfirm(false);
-              }
-            }}>Delete</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteMutation.mutate(deleteTarget);
+                  setShowDeleteConfirm(false);
+                }
+              }}
+            >
+              Delete
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
+      {/* Filters */}
       <Card>
         <CardContent className="pt-4 pb-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground">Filter by Position</Label>
               <Select value={positionFilter} onValueChange={setPositionFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Positions" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="All Positions" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Positions</SelectItem>
                   {jobVacancies.map((vacancy) => (
@@ -562,9 +536,7 @@ export default function Evaluations() {
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground">Filter by Position Level</Label>
               <Select value={levelFilter} onValueChange={(value) => setLevelFilter(value as "all" | "first_level" | "second_level")}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Levels" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="All Levels" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Levels</SelectItem>
                   <SelectItem value="first_level">First Level</SelectItem>
@@ -576,6 +548,7 @@ export default function Evaluations() {
         </CardContent>
       </Card>
 
+      {/* Table */}
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -586,6 +559,7 @@ export default function Evaluations() {
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Applicant</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Position</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Level</th>
+                  <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Panelists</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide text-center">Total Score</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Remarks</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide text-right">Actions</th>
@@ -608,6 +582,9 @@ export default function Evaluations() {
                     <td className="px-4 py-3 font-medium text-foreground">{ev.applicantName}</td>
                     <td className="px-4 py-3 text-muted-foreground">{ev.positionTitle}</td>
                     <td className="px-4 py-3 text-muted-foreground">{ev.displayLevel === "second_level" ? "Second Level" : "First Level"}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {ev.panelists?.length || 0} panelist{ev.panelists?.length !== 1 ? "s" : ""}
+                    </td>
                     <td className="px-4 py-3 text-center font-bold text-primary text-base">{ev.totalScore.toFixed(1)}</td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{ev.remarks}</td>
                     <td className="px-4 py-3 text-right">
@@ -639,7 +616,7 @@ export default function Evaluations() {
                 ))}
                 {filteredEvaluationRows.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       No evaluations found for the selected filters.
                     </td>
                   </tr>
