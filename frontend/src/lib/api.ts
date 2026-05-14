@@ -38,6 +38,15 @@ export function getFileUrl(path: string): string {
   return path;
 }
 
+export async function createEmailTemplate(
+  payload: Omit<EmailTemplate, "templateKey" | "updatedAt"> & { linkedStatus: string }
+): Promise<EmailTemplate> {
+  return apiFetch<EmailTemplate>("/email-templates", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export function getAuthToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -367,8 +376,8 @@ export async function updateApplicationStatus(payload: {
   finalEvaluationVenue?: string;
   notifyApplicant?: boolean;
   rejectionSubtype?: "not_qualified" | "non_teaching" | "teaching";
-  rejectionTemplateText?: string;
-  qualificationTemplateText?: string;
+  selectedTemplateKey?: string;
+  emailTemplateText?: string;
 }) {
   return apiFetch<{ application: Application; history: StatusHistory }>(`/applications/${payload.id}/status`, {
     method: "PATCH",
@@ -387,8 +396,8 @@ export async function updateApplicationStatus(payload: {
       finalEvaluationVenue: payload.finalEvaluationVenue,
       notifyApplicant: payload.notifyApplicant,
       rejectionSubtype: payload.rejectionSubtype,
-      rejectionTemplateText: payload.rejectionTemplateText,
-      qualificationTemplateText: payload.qualificationTemplateText
+      selectedTemplateKey: payload.selectedTemplateKey,
+      emailTemplateText: payload.emailTemplateText
     })
   });
 }
@@ -409,6 +418,12 @@ export async function updateEmailTemplate(templateKey: EmailTemplate["templateKe
   return apiFetch<EmailTemplate>(`/email-templates/${templateKey}`, {
     method: "PUT",
     body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteEmailTemplate(templateKey: EmailTemplate["templateKey"]) {
+  return apiFetch<void>(`/email-templates/${encodeURIComponent(templateKey)}`, {
+    method: "DELETE"
   });
 }
 

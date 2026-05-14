@@ -312,113 +312,7 @@ type EmailTemplateRecord = {
   updated_at: string;
 };
 
-const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
-  {
-    template_key: "not_qualified",
-    template_name: "Letter for Not Qualified Applicants",
-    template_group: "rejection",
-    subject: "Application Status Update: Not Qualified",
-    body: [
-      "Date: {{date}}",
-      "",
-      "Dear Mr./Ms. {{applicantName}}:",
-      "Thank you for your interest in the {{jobTitle}} and for the time and effort you invested in your application.",
-      "After careful review and evaluation of all applications, we regret to inform you that you were not selected for the position. While your qualifications and experiences are valued, the selection process was highly competitive, and only applicants who fully met the qualifications and requirements were considered for appointment.",
-      "We sincerely thank you for the interest you have shown in our organization and encourage you to continue seeking opportunities with us in the future.",
-      "Once again, thank you for considering Western Mindanao State University.",
-      "Respectfully,",
-      "________________________________",
-      "Human Resource Management Officer III"
-    ].join("\n"),
-    updated_at: ""
-  },
-  {
-    template_key: "non_teaching",
-    template_name: "Letter of Regret (For Interviewed Non-Teaching Applicants)",
-    template_group: "rejection",
-    subject: "Application Status Update: Not Selected",
-    body: [
-      "Date: {{date}}",
-      "",
-      "___________________________________",
-      "___________________________________",
-      "___________________________________",
-      "",
-      "Dear {{applicantName}},",
-      "",
-      "This refers to your application for the position of {{jobTitle}} at Western Mindanao State University.",
-      "We appreciate the interest you have shown and the time you have spent on the interview with us. However, please be informed that a candidate for the said position has already been selected.",
-      "We genuinely appreciate and thank you for your interest in joining the WMSU Community.",
-      "",
-      "Very truly yours,",
-      "",
-      "______________________________________________",
-      "Human Resource Management Officer III"
-    ].join("\n"),
-    updated_at: ""
-  },
-  {
-    template_key: "teaching",
-    template_name: "Letter of Regret (For Interviewed Teaching Applicants)",
-    template_group: "rejection",
-    subject: "Application Status Update: Not Selected",
-    body: [
-      "Date: {{date}}",
-      "",
-      "___________________________________",
-      "___________________________________",
-      "___________________________________",
-      "",
-      "Dear {{applicantName}},",
-      "",
-      "This refers to your application for the position of {{jobTitle}} at Western Mindanao State University.",
-      "We appreciate the interest you have shown and the time you have spent on the Teaching Demonstration and/or Interview with us. However, please be informed that a candidate for the said position has already been selected.",
-      "We genuinely appreciate and thank you for your interest in joining the WMSU Community.",
-      "",
-      "Very truly yours,",
-      "",
-      "______________________________________________",
-      "Human Resource Management Officer III"
-    ].join("\n"),
-    updated_at: ""
-  },
-  {
-    template_key: "qualification_notice",
-    template_name: "Qualification Notice",
-    template_group: "qualification",
-    subject: "Application Status Update: Qualified",
-    body: [
-      "Dear {{applicantName}},",
-      "",
-      "This refers to your application for the position of {{jobTitle}} at Western Mindanao State University.",
-      "We are pleased to inform you that your application has met the required qualifications and is now moving to the next stage of the hiring process.",
-      "Please await further instructions from the WMSU HR Office regarding the next step in your application.",
-      "",
-      "Very truly yours,",
-      "",
-      "WMSU HR Office"
-    ].join("\n"),
-    updated_at: ""
-  }
-  ,
-  {
-    template_key: "hired",
-    template_name: "Hired Notice",
-    template_group: "qualification",
-    subject: "Application Status Update: Hired",
-    body: [
-      "Dear {{applicantName}}:",
-      "",
-      "Congratulations! We are pleased to inform you that you have been selected and marked as hired for the position of {{jobTitle}}.",
-      "Please await further communication from the HR Office regarding appointment details and next steps.",
-      "",
-      "Very truly yours,",
-      "",
-      "WMSU HR Office"
-    ].join("\n"),
-    updated_at: ""
-  }
-];
+const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [];
 
 function renderTemplateText(template: string, variables: Record<string, string>) {
   return template.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_match, key: string) => variables[key] ?? "");
@@ -2987,10 +2881,54 @@ app.get("/api/email-templates", requireAuth, asyncHandler(async (_req, res) => {
     templateKey: row.template_key,
     templateName: row.template_name,
     templateGroup: row.template_group,
+    linkedStatus: row.template_key.split(":")[0],
     subject: row.subject,
     body: row.body,
     updatedAt: row.updated_at
   })));
+}));
+
+app.post("/api/email-templates", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const { templateName, templateGroup, subject, body, linkedStatus } = req.body as {
+    templateName?: string;
+    templateGroup?: "rejection" | "qualification";
+    subject?: string;
+    body?: string;
+    linkedStatus?: string;
+  };
+
+  if (!templateName || !templateGroup || !subject || !body || !linkedStatus) {
+    res.status(400).json({ error: "templateName, templateGroup, subject, body, and linkedStatus are required" });
+    return;
+  }
+
+  // Generate templateKey from linkedStatus and current count
+  const existingKeys = await query("SELECT template_key FROM email_templates WHERE template_key LIKE $1", [`${linkedStatus}:%`]);
+  const count = existingKeys.rows.length;
+  const templateKey: EmailTemplateKey = `${linkedStatus}:${count + 1}`;
+
+  const updatedAt = new Date().toISOString();
+  await query(
+    `INSERT INTO email_templates (template_key, template_name, template_group, subject, body, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [templateKey, templateName, templateGroup, subject, body, updatedAt]
+  );
+
+  const saved = await fetchEmailTemplateByKey(templateKey);
+  if (!saved) {
+    res.status(500).json({ error: "Failed to create email template" });
+    return;
+  }
+
+  res.json({
+    templateKey: saved.template_key,
+    templateName: saved.template_name,
+    templateGroup: saved.template_group,
+    linkedStatus: linkedStatus,
+    subject: saved.subject,
+    body: saved.body,
+    updatedAt: saved.updated_at
+  });
 }));
 
 app.put("/api/email-templates/:templateKey", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
@@ -3030,10 +2968,19 @@ app.put("/api/email-templates/:templateKey", requireAuth, requireAdmin, asyncHan
     templateKey: saved.template_key,
     templateName: saved.template_name,
     templateGroup: saved.template_group,
+    linkedStatus: saved.template_key.split(":")[0],
     subject: saved.subject,
     body: saved.body,
     updatedAt: saved.updated_at
   });
+}));
+
+app.delete("/api/email-templates/:templateKey", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const templateKey = req.params.templateKey as EmailTemplateKey;
+
+  await query("DELETE FROM email_templates WHERE template_key = $1", [templateKey]);
+
+  res.json({ success: true, message: "Email template deleted successfully" });
 }));
 
 app.get("/api/evaluations", asyncHandler(async (_req, res) => {

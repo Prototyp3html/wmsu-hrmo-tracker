@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { fetchApplicants, fetchApplications, fetchEmailTemplates, fetchJobs, updateEmailTemplate, fetchArchivedVacancies, restoreArchivedVacancy, getArchiveDurationSetting, updateArchiveDurationSetting } from "@/lib/api";
+import { fetchApplicants, fetchApplications, fetchEmailTemplates, fetchJobs, updateEmailTemplate, fetchArchivedVacancies, restoreArchivedVacancy, getArchiveDurationSetting, updateArchiveDurationSetting, createEmailTemplate, deleteEmailTemplate } from "@/lib/api";
 import type { EmailTemplate } from "@/lib/types";
-import { Search, Pencil } from "lucide-react";
+import { Search, Pencil, Plus, Trash2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
@@ -23,6 +23,31 @@ type ArchiveRow = {
   dateApplied: string;
   remarks: string;
 };
+
+// All application statuses that can have templates
+const APPLICATION_STATUSES = [
+  "Application Received",
+  "Under Initial Screening",
+  "For Examination",
+  "For Interview",
+  "For Final Evaluation",
+  "Approved",
+  "Hired",
+  "Rejected"
+] as const;
+
+// Available placeholders users can insert
+const AVAILABLE_PLACEHOLDERS = [
+  { label: "Applicant Name", value: "{{applicantName}}" },
+  { label: "Job Title", value: "{{jobTitle}}" },
+  { label: "Date", value: "{{date}}" },
+  { label: "Exam Date", value: "{{examDate}}" },
+  { label: "Exam Venue", value: "{{examVenue}}" },
+  { label: "Interview Date", value: "{{interviewDate}}" },
+  { label: "Interview Venue", value: "{{interviewVenue}}" },
+  { label: "Final Eval Date", value: "{{finalEvalDate}}" },
+  { label: "Final Eval Venue", value: "{{finalEvalVenue}}" },
+] as const;
 
 const REQUIRED_PLACEHOLDERS = ["{{applicantName}}", "{{jobTitle}}", "{{date}}"] as const;
 
@@ -44,58 +69,218 @@ function selectionIntersectsProtected(text: string, start: number, end: number) 
 
 function caretTouchesProtected(text: string, caret: number, key: "Backspace" | "Delete") {
   return getPlaceholderRanges(text).some((range) => {
-    if (key === "Backspace") {
-      return caret > range.start && caret <= range.end;
-    }
+    if (key === "Backspace") return caret > range.start && caret <= range.end;
     return caret >= range.start && caret < range.end;
   });
 }
 
+// Determine template group from status
+function groupFromStatus(status: string): EmailTemplate["templateGroup"] {
+  return status === "Rejected" ? "rejection" : "qualification";
+}
+
+// ─── Placeholder Chip Bar ─────────────────────────────────────────────────────
+function PlaceholderChips({ onInsert }: { onInsert: (placeholder: string) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-medium text-muted-foreground">Click to insert placeholder:</p>
+      <div className="flex flex-wrap gap-2">
+        {AVAILABLE_PLACEHOLDERS.map((p) => (
+          <button
+            key={p.value}
+            type="button"
+            onClick={() => onInsert(p.value)}
+            className="inline-flex items-center rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs font-mono text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
+          >
+            {p.value}
+            <span className="ml-1.5 text-[10px] text-muted-foreground font-sans not-italic opacity-70 group-hover:text-primary-foreground">
+              {p.label}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Template Form (shared by Add and Edit) ───────────────────────────────────
+interface TemplateFormState {
+  templateName: string;
+  templateGroup: EmailTemplate["templateGroup"];
+  subject: string;
+  body: string;
+  linkedStatus: string;
+}
+
+interface TemplateEditorProps {
+  form: TemplateFormState;
+  setForm: (f: TemplateFormState) => void;
+  isNew?: boolean;
+  bodyRef: React.RefObject<HTMLTextAreaElement>;
+}
+
+function TemplateEditor({ form, setForm, isNew, bodyRef }: TemplateEditorProps) {
+  const { toast } = useToast();
+
+  const insertPlaceholder = (placeholder: string) => {
+    const ta = bodyRef.current;
+    if (!ta) {
+      setForm({ ...form, body: form.body + placeholder });
+      return;
+    }
+    const start = ta.selectionStart ?? form.body.length;
+    const end = ta.selectionEnd ?? form.body.length;
+    const newBody = form.body.slice(0, start) + placeholder + form.body.slice(end);
+    setForm({ ...form, body: newBody });
+    // Restore cursor after insertion
+    requestAnimationFrame(() => {
+      ta.selectionStart = start + placeholder.length;
+      ta.selectionEnd = start + placeholder.length;
+      ta.focus();
+    });
+  };
+
+  const handleBodyKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Backspace" && event.key !== "Delete") return;
+    const target = event.currentTarget;
+    const start = target.selectionStart ?? 0;
+    const end = target.selectionEnd ?? 0;
+    if (start !== end) {
+      if (selectionIntersectsProtected(form.body, start, end)) {
+        event.preventDefault();
+        toast({ title: "Protected text", description: "Required placeholders cannot be deleted.", variant: "destructive" });
+      }
+      return;
+    }
+    if (caretTouchesProtected(form.body, start, event.key as "Backspace" | "Delete")) {
+      event.preventDefault();
+      toast({ title: "Protected text", description: "Required placeholders cannot be deleted.", variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {isNew && (
+        <div className="space-y-2">
+          <Label>Linked to Status <span className="text-destructive">*</span></Label>
+          <Select
+            value={form.linkedStatus}
+            onValueChange={(val) =>
+              setForm({ ...form, linkedStatus: val, templateGroup: groupFromStatus(val) })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Pick an application status" />
+            </SelectTrigger>
+            <SelectContent>
+              {APPLICATION_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            This template will be used when an applicant's status changes to the selected stage.
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Label>Template Name <span className="text-destructive">*</span></Label>
+        <Input
+          value={form.templateName}
+          onChange={(e) => setForm({ ...form, templateName: e.target.value })}
+          placeholder="e.g. Interview Invitation"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Subject <span className="text-destructive">*</span></Label>
+        <Input
+          value={form.subject}
+          onChange={(e) => setForm({ ...form, subject: e.target.value })}
+          placeholder="e.g. Invitation for Interview – {{jobTitle}}"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Body <span className="text-destructive">*</span></Label>
+        <PlaceholderChips onInsert={insertPlaceholder} />
+        <Textarea
+          ref={bodyRef}
+          className="min-h-[280px] font-mono text-sm"
+          value={form.body}
+          onKeyDown={handleBodyKeyDown}
+          onChange={(e) => setForm({ ...form, body: e.target.value })}
+          placeholder={`Dear {{applicantName}},\n\nWe are pleased to invite you for an interview for the {{jobTitle}} position.\n\nDate: {{date}}\n\nBest regards,\nHR Department`}
+        />
+        <div className="rounded-lg bg-muted/40 border border-border/50 px-3 py-2 space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Required placeholders:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {REQUIRED_PLACEHOLDERS.map((p) => {
+              const missing = !form.body.includes(p);
+              return (
+                <span
+                  key={p}
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-mono border ${
+                    missing
+                      ? "bg-destructive/10 border-destructive/40 text-destructive"
+                      : "bg-green-50 border-green-300 text-green-700"
+                  }`}
+                >
+                  {missing ? "✗" : "✓"} {p}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export default function Archive() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const editBodyRef = useRef<HTMLTextAreaElement>(null);
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Edit template dialog
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
-  const [templateForm, setTemplateForm] = useState({
+  const [editForm, setEditForm] = useState<TemplateFormState>({
     templateName: "",
-    templateGroup: "rejection" as EmailTemplate["templateGroup"],
+    templateGroup: "rejection",
     subject: "",
-    body: ""
+    body: "",
+    linkedStatus: ""
   });
+
+  // Add template dialog
+  const [showAddTemplate, setShowAddTemplate] = useState(false);
+  const [addForm, setAddForm] = useState<TemplateFormState>({
+    templateName: "",
+    templateGroup: "qualification",
+    subject: "",
+    body: "",
+    linkedStatus: ""
+  });
+
+  // Delete template confirmation
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{ templateKey: string; templateName: string } | null>(null);
+
   const [showDurationEditor, setShowDurationEditor] = useState(false);
   const [newDuration, setNewDuration] = useState(30);
 
-  const { data: applicants = [], isLoading: loadingApplicants } = useQuery({
-    queryKey: ["applicants"],
-    queryFn: fetchApplicants
-  });
-
-  const { data: applications = [], isLoading: loadingApplications } = useQuery({
-    queryKey: ["applications"],
-    queryFn: fetchApplications
-  });
-
-  const { data: jobs = [], isLoading: loadingJobs } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: fetchJobs
-  });
-
-  const { data: emailTemplates = [], isLoading: loadingTemplates } = useQuery({
-    queryKey: ["email-templates"],
-    queryFn: fetchEmailTemplates
-  });
-
-  const { data: archivedVacancies = [], isLoading: loadingArchivedVacancies } = useQuery({
-    queryKey: ["archived-vacancies"],
-    queryFn: fetchArchivedVacancies
-  });
-
-  const { data: archiveDurationData, isLoading: loadingDuration } = useQuery({
-    queryKey: ["archive-duration"],
-    queryFn: getArchiveDurationSetting
-  });
+  const { data: applicants = [], isLoading: loadingApplicants } = useQuery({ queryKey: ["applicants"], queryFn: fetchApplicants });
+  const { data: applications = [], isLoading: loadingApplications } = useQuery({ queryKey: ["applications"], queryFn: fetchApplications });
+  const { data: jobs = [], isLoading: loadingJobs } = useQuery({ queryKey: ["jobs"], queryFn: fetchJobs });
+  const { data: emailTemplates = [], isLoading: loadingTemplates } = useQuery({ queryKey: ["email-templates"], queryFn: fetchEmailTemplates });
+  const { data: archivedVacancies = [], isLoading: loadingArchivedVacancies } = useQuery({ queryKey: ["archived-vacancies"], queryFn: fetchArchivedVacancies });
+  const { data: archiveDurationData } = useQuery({ queryKey: ["archive-duration"], queryFn: getArchiveDurationSetting });
 
   const restoreMutation = useMutation({
     mutationFn: (vacancyId: string) => restoreArchivedVacancy(vacancyId),
@@ -122,11 +307,8 @@ export default function Archive() {
     }
   });
 
-  // Sync newDuration with fetched data
   useEffect(() => {
-    if (archiveDurationData?.days) {
-      setNewDuration(archiveDurationData.days);
-    }
+    if (archiveDurationData?.days) setNewDuration(archiveDurationData.days);
   }, [archiveDurationData]);
 
   const saveTemplateMutation = useMutation({
@@ -142,6 +324,32 @@ export default function Archive() {
     }
   });
 
+  const createTemplateMutation = useMutation({
+    mutationFn: (payload: Omit<EmailTemplate, "templateKey" | "updatedAt"> & { linkedStatus: string }) =>
+      createEmailTemplate(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["email-templates"] });
+      setShowAddTemplate(false);
+      setAddForm({ templateName: "", templateGroup: "qualification", subject: "", body: "", linkedStatus: "" });
+      toast({ title: "Template created", description: "New email template was added." });
+    },
+    onError: (error) => {
+      toast({ title: "Create failed", description: (error as Error).message, variant: "destructive" });
+    }
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: (templateKey: EmailTemplate["templateKey"]) => deleteEmailTemplate(templateKey),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["email-templates"] });
+      setDeleteConfirmation(null);
+      toast({ title: "Template deleted", description: "Email template has been deleted successfully." });
+    },
+    onError: (error) => {
+      toast({ title: "Delete failed", description: (error as Error).message, variant: "destructive" });
+    }
+  });
+
   const rows = useMemo<ArchiveRow[]>(() => {
     if (applications.length === 0) {
       return applicants.map((applicant) => ({
@@ -154,11 +362,9 @@ export default function Archive() {
         remarks: "-"
       }));
     }
-
     const mapped = applications.map((application) => {
       const applicant = applicants.find((a) => a.id === application.applicantId);
       const job = jobs.find((j) => j.id === application.vacancyId);
-
       return {
         id: application.id,
         applicantName: applicant?.fullName ?? "Unknown applicant",
@@ -169,7 +375,6 @@ export default function Archive() {
         remarks: application.remarks ?? "-"
       };
     });
-
     return mapped.sort((a, b) => b.dateApplied.localeCompare(a.dateApplied));
   }, [applications, applicants, jobs]);
 
@@ -180,7 +385,6 @@ export default function Archive() {
 
   const filteredRows = useMemo(() => {
     const needle = search.trim().toLowerCase();
-
     return rows.filter((row) => {
       const matchesSearch =
         needle.length === 0 ||
@@ -188,50 +392,37 @@ export default function Archive() {
         row.applicantEmail.toLowerCase().includes(needle) ||
         row.positionTitle.toLowerCase().includes(needle) ||
         row.status.toLowerCase().includes(needle);
-
       const matchesStatus = statusFilter === "all" || row.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
   }, [rows, search, statusFilter]);
 
   const templatesByGroup = useMemo(() => ({
-    rejection: emailTemplates.filter((template) => template.templateGroup === "rejection"),
-    qualification: emailTemplates.filter((template) => template.templateGroup === "qualification")
+    rejection: emailTemplates.filter((t) => t.templateGroup === "rejection"),
+    qualification: emailTemplates.filter((t) => t.templateGroup === "qualification")
   }), [emailTemplates]);
 
   const bodyPreview = (body: string) => body.replace(/\s+/g, " ").trim().slice(0, 200);
 
   const openTemplateEditor = (template: EmailTemplate) => {
     setEditingTemplate(template);
-    setTemplateForm({
+    setEditForm({
       templateName: template.templateName,
       templateGroup: template.templateGroup,
       subject: template.subject,
-      body: template.body
+      body: template.body,
+      linkedStatus: ""
     });
   };
 
-  const missingPlaceholders = REQUIRED_PLACEHOLDERS.filter((placeholder) => !templateForm.body.includes(placeholder));
-
-  const handleTemplateBodyKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Backspace" && event.key !== "Delete") return;
-
-    const target = event.currentTarget;
-    const start = target.selectionStart ?? 0;
-    const end = target.selectionEnd ?? 0;
-
-    if (start !== end) {
-      if (selectionIntersectsProtected(templateForm.body, start, end)) {
-        event.preventDefault();
-        toast({ title: "Protected text", description: "Required placeholders cannot be deleted.", variant: "destructive" });
-      }
-      return;
-    }
-
-    if (caretTouchesProtected(templateForm.body, start, event.key as "Backspace" | "Delete")) {
-      event.preventDefault();
-      toast({ title: "Protected text", description: "Required placeholders cannot be deleted.", variant: "destructive" });
-    }
+  const validateForm = (form: TemplateFormState, isNew: boolean) => {
+    if (!form.templateName.trim()) return "Template name is required.";
+    if (!form.subject.trim()) return "Subject is required.";
+    if (!form.body.trim()) return "Body is required.";
+    if (isNew && !form.linkedStatus) return "Please select a linked application status.";
+    const missing = REQUIRED_PLACEHOLDERS.filter((p) => !form.body.includes(p));
+    if (missing.length > 0) return `Missing required placeholders: ${missing.join(", ")}`;
+    return null;
   };
 
   const isLoading = loadingApplicants || loadingApplications || loadingJobs;
@@ -249,27 +440,22 @@ export default function Archive() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
               placeholder="Search by applicant, email, position, or status"
             />
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger>
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Filter by status" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
-              {statusOptions.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {status}
-                </SelectItem>
-              ))}
+              {statusOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
             </SelectContent>
           </Select>
         </CardContent>
       </Card>
 
+      {/* Email Templates Section */}
       <Card className="overflow-hidden">
         <Accordion type="single" collapsible>
           <AccordionItem value="email-templates" className="border-0">
@@ -284,6 +470,14 @@ export default function Archive() {
                 <p className="text-sm text-muted-foreground">Loading templates...</p>
               ) : (
                 <div className="space-y-6">
+                  {user?.role === "admin" && (
+                    <div className="flex justify-end">
+                      <Button onClick={() => setShowAddTemplate(true)}>
+                        <Plus className="w-4 h-4 mr-2" /> Add New Template
+                      </Button>
+                    </div>
+                  )}
+
                   {(["rejection", "qualification"] as const).map((group) => (
                     <div key={group} className="space-y-3">
                       <div className="flex items-center justify-between gap-3">
@@ -299,9 +493,14 @@ export default function Archive() {
                                 <p className="text-xs text-muted-foreground">Key: {template.templateKey}</p>
                               </div>
                               {user?.role === "admin" && (
-                                <Button variant="outline" size="sm" onClick={() => openTemplateEditor(template)}>
-                                  <Pencil className="w-4 h-4 mr-2" /> Edit
-                                </Button>
+                                <div className="flex gap-2">
+                                  <Button variant="outline" size="sm" onClick={() => openTemplateEditor(template)}>
+                                    <Pencil className="w-4 h-4 mr-2" /> Edit
+                                  </Button>
+                                  <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteConfirmation({ templateKey: template.templateKey, templateName: template.templateName })}>
+                                    <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                  </Button>
+                                </div>
                               )}
                             </div>
                             <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -313,6 +512,9 @@ export default function Archive() {
                             </div>
                           </div>
                         ))}
+                        {templatesByGroup[group].length === 0 && (
+                          <p className="text-sm text-muted-foreground col-span-2">No {group} templates yet.</p>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -323,6 +525,7 @@ export default function Archive() {
         </Accordion>
       </Card>
 
+      {/* Archive Table */}
       <Card>
         <CardContent className="pt-5">
           {isLoading ? (
@@ -369,70 +572,7 @@ export default function Archive() {
         </CardContent>
       </Card>
 
-      <Dialog open={Boolean(editingTemplate)} onOpenChange={(open) => !open && setEditingTemplate(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Email Template</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Template Name</Label>
-              <Input value={templateForm.templateName} onChange={(e) => setTemplateForm((prev) => ({ ...prev, templateName: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Subject</Label>
-              <Input value={templateForm.subject} onChange={(e) => setTemplateForm((prev) => ({ ...prev, subject: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Body</Label>
-              <Textarea
-                className="min-h-[340px] font-mono text-sm"
-                value={templateForm.body}
-                onKeyDown={handleTemplateBodyKeyDown}
-                onChange={(e) => setTemplateForm((prev) => ({ ...prev, body: e.target.value }))}
-              />
-              <p className="text-xs text-muted-foreground">
-                You can use placeholders like {"{{applicantName}}"}, {"{{jobTitle}}"}, and {"{{date}}"}.
-              </p>
-              {missingPlaceholders.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  The required placeholders are locked and will be restored automatically.
-                </p>
-              )}
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" type="button" onClick={() => setEditingTemplate(null)}>Cancel</Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  if (!editingTemplate) return;
-                  if (missingPlaceholders.length > 0) {
-                    toast({
-                      title: "Required placeholders missing",
-                      description: "Please keep {{applicantName}}, {{jobTitle}}, and {{date}} in the template.",
-                      variant: "destructive"
-                    });
-                    return;
-                  }
-                  saveTemplateMutation.mutate({
-                    templateKey: editingTemplate.templateKey,
-                    payload: {
-                      templateName: templateForm.templateName,
-                      templateGroup: templateForm.templateGroup,
-                      subject: templateForm.subject,
-                      body: templateForm.body
-                    }
-                  });
-                }}
-                disabled={saveTemplateMutation.isPending || missingPlaceholders.length > 0}
-              >
-                Save Template
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
+      {/* Archived Vacancies */}
       <Card>
         <CardContent className="pt-5">
           <div className="mb-4">
@@ -441,11 +581,7 @@ export default function Archive() {
               {user?.role === "admin" && (
                 <div className="flex items-center gap-2">
                   {!showDurationEditor ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowDurationEditor(true)}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => setShowDurationEditor(true)}>
                       Set Retention Period
                     </Button>
                   ) : (
@@ -465,30 +601,22 @@ export default function Archive() {
                           if (newDuration >= 1 && newDuration <= 180) {
                             updateDurationMutation.mutate(newDuration);
                           } else {
-                            toast({
-                              title: "Invalid duration",
-                              description: "Duration must be between 1 and 180 days.",
-                              variant: "destructive"
-                            });
+                            toast({ title: "Invalid duration", description: "Duration must be between 1 and 180 days.", variant: "destructive" });
                           }
                         }}
                         disabled={updateDurationMutation.isPending}
                       >
                         Save
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowDurationEditor(false)}
-                      >
-                        Cancel
-                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setShowDurationEditor(false)}>Cancel</Button>
                     </div>
                   )}
                 </div>
               )}
             </div>
-            <p className="text-sm text-muted-foreground">Vacancies that have passed their closing date. They will be permanently deleted after {archiveDurationData?.days || 30} days.</p>
+            <p className="text-sm text-muted-foreground">
+              Vacancies that have passed their closing date. They will be permanently deleted after {archiveDurationData?.days || 30} days.
+            </p>
           </div>
 
           {loadingArchivedVacancies ? (
@@ -498,10 +626,7 @@ export default function Archive() {
           ) : (
             <div className="space-y-3">
               {archivedVacancies.map((vacancy) => (
-                <div
-                  key={vacancy.id}
-                  className="rounded-lg border border-border/50 bg-background/50 p-4 space-y-3"
-                >
+                <div key={vacancy.id} className="rounded-lg border border-border/50 bg-background/50 p-4 space-y-3">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-foreground truncate">{vacancy.positionTitle}</h3>
@@ -520,7 +645,6 @@ export default function Archive() {
                       Restore
                     </Button>
                   </div>
-
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
                     <div className="rounded bg-muted/50 p-2">
                       <p className="text-muted-foreground">Archived</p>
@@ -543,6 +667,110 @@ export default function Archive() {
           )}
         </CardContent>
       </Card>
+
+      {/* Edit Template Dialog */}
+      <Dialog open={Boolean(editingTemplate)} onOpenChange={(open) => !open && setEditingTemplate(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Email Template</DialogTitle>
+          </DialogHeader>
+          <TemplateEditor form={editForm} setForm={setEditForm} bodyRef={editBodyRef} />
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="outline" type="button" onClick={() => setEditingTemplate(null)}>Cancel</Button>
+            <Button
+              type="button"
+              disabled={saveTemplateMutation.isPending}
+              onClick={() => {
+                if (!editingTemplate) return;
+                const error = validateForm(editForm, false);
+                if (error) {
+                  toast({ title: "Validation error", description: error, variant: "destructive" });
+                  return;
+                }
+                saveTemplateMutation.mutate({
+                  templateKey: editingTemplate.templateKey,
+                  payload: {
+                    templateName: editForm.templateName,
+                    templateGroup: editForm.templateGroup,
+                    subject: editForm.subject,
+                    body: editForm.body
+                  }
+                });
+              }}
+            >
+              Save Template
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Template Dialog */}
+      <Dialog open={showAddTemplate} onOpenChange={(open) => {
+        setShowAddTemplate(open);
+        if (!open) setAddForm({ templateName: "", templateGroup: "qualification", subject: "", body: "", linkedStatus: "" });
+      }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add New Email Template</DialogTitle>
+          </DialogHeader>
+          <TemplateEditor form={addForm} setForm={setAddForm} isNew bodyRef={bodyRef} />
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="outline" type="button" onClick={() => setShowAddTemplate(false)}>Cancel</Button>
+            <Button
+              type="button"
+              disabled={createTemplateMutation.isPending}
+              onClick={() => {
+                const error = validateForm(addForm, true);
+                if (error) {
+                  toast({ title: "Validation error", description: error, variant: "destructive" });
+                  return;
+                }
+                createTemplateMutation.mutate({
+                  templateName: addForm.templateName,
+                  templateGroup: addForm.templateGroup,
+                  subject: addForm.subject,
+                  body: addForm.body,
+                  linkedStatus: addForm.linkedStatus
+                });
+              }}
+            >
+              Create Template
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Template Confirmation Dialog */}
+      <Dialog open={!!deleteConfirmation} onOpenChange={(open) => {
+        if (!open) setDeleteConfirmation(null);
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Template?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete the template <span className="font-semibold text-foreground">"{deleteConfirmation?.templateName}"</span>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setDeleteConfirmation(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={deleteTemplateMutation.isPending}
+                onClick={() => {
+                  if (deleteConfirmation?.templateKey) {
+                    deleteTemplateMutation.mutate(deleteConfirmation.templateKey);
+                  }
+                }}
+              >
+                {deleteTemplateMutation.isPending ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

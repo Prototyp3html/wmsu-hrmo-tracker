@@ -126,7 +126,7 @@ export default function Login() {
           <div className="space-y-5 max-w-md">
             <div className="w-10 h-1 rounded-full bg-red-400" />
             <h2 className="text-4xl font-extrabold leading-snug tracking-tight drop-shadow-lg">
-              Streamlining HR Operations at WMSU
+              Streamlining HR Operations in WMSU
             </h2>
             <p className="text-white/65 leading-relaxed text-base">
               Manage vacancies, track applicants, evaluate candidates, and generate

@@ -237,9 +237,10 @@ export interface AuditLog {
 }
 
 export interface EmailTemplate {
-  templateKey: "not_qualified" | "non_teaching" | "teaching" | "qualification_notice" | "hired";
+  templateKey: string;
   templateName: string;
   templateGroup: "rejection" | "qualification";
+  linkedStatus?: string;
   subject: string;
   body: string;
   updatedAt: string;
