@@ -430,6 +430,7 @@ export async function deleteEmailTemplate(templateKey: EmailTemplate["templateKe
 export async function createEvaluation(payload: {
   applicationId: string;
   positionLevel: "first_level" | "second_level";
+  panelists: Panelist[];
   communicationSkills?: number;
   abilityToPresent?: number;
   alertness?: number;
@@ -452,6 +453,7 @@ export async function createEvaluation(payload: {
 
 export async function updateEvaluation(id: string, payload: {
   positionLevel: "first_level" | "second_level";
+  panelists: Panelist[];
   communicationSkills?: number;
   abilityToPresent?: number;
   alertness?: number;

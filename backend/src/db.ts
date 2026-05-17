@@ -144,6 +144,8 @@ export async function initDb() {
       id TEXT PRIMARY KEY,
       application_id TEXT NOT NULL REFERENCES applications(id),
       position_level TEXT NOT NULL DEFAULT 'first_level',
+      panelists TEXT NOT NULL DEFAULT '[]',
+      panelists_count INTEGER NOT NULL DEFAULT 0,
       communication_skills REAL,
       ability_to_present REAL,
       alertness REAL,
@@ -209,6 +211,20 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_position_titles_title ON position_titles(title);
   `);
+
+  await query(`
+    ALTER TABLE evaluations
+    ADD COLUMN IF NOT EXISTS panelists TEXT NOT NULL DEFAULT '[]';
+  `).catch(() => {
+    // Ignore errors if column already exists.
+  });
+
+  await query(`
+    ALTER TABLE evaluations
+    ADD COLUMN IF NOT EXISTS panelists_count INTEGER NOT NULL DEFAULT 0;
+  `).catch(() => {
+    // Ignore errors if column already exists.
+  });
 
   // Add position_level column if it doesn't exist (for existing databases)
   await query(`

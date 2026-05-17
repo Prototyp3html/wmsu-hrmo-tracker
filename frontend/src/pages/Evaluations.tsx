@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createEvaluation, fetchApplicants, fetchApplications, fetchEvaluations, fetchJobs, updateEvaluation, deleteEvaluation } from "@/lib/api";
 import { Award, Trophy, Pencil, Trash2, Info, Ellipsis, X, Plus } from "lucide-react";
@@ -71,6 +71,37 @@ function calculateTotalScore(
   return avgValues.reduce((a, b) => a + b, 0) / avgValues.length;
 }
 
+function mapAveragesToScorePayload(
+  averages: Record<string, number>,
+  level: "first_level" | "second_level"
+) {
+  if (level === "first_level") {
+    return {
+      communicationSkills: averages.communicationSkillsAvg,
+      abilityToPresent: averages.abilityToPresentAvg,
+      alertness: averages.alertnessAvg,
+      judgement: averages.judgementAvg,
+      emotionalStability: averages.emotionalStabilityAvg,
+      selfConfidence: averages.selfConfidenceAvg
+    };
+  }
+
+  return {
+    oralCommunication: averages.oralCommunicationAvg,
+    analyticalAbility: averages.analyticalAbilityAvg,
+    initiative: averages.initiativeAvg,
+    stressTolerance: averages.stressToleranceAvg,
+    sensitivity: averages.sensitivityAvg,
+    serviceOrientation: averages.serviceOrientationAvg,
+    judgement: averages.judgementAvg
+  };
+}
+
+function getAverageScore(totalScore: number, level: "first_level" | "second_level") {
+  const criteriaCount = level === "first_level" ? Object.keys(FIRST_LEVEL_CRITERIA).length : Object.keys(SECOND_LEVEL_CRITERIA).length;
+  return criteriaCount > 0 ? totalScore / criteriaCount : totalScore;
+}
+
 // ─── Sub-components (defined outside Evaluations so React never remounts them) ─
 
 interface EvalFormProps {
@@ -82,6 +113,17 @@ interface EvalFormProps {
 
 function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
   const activeCriteria = criteria ?? (level === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA);
+  const [showCountSelector, setShowCountSelector] = useState(panelists.length === 1 && !panelists[0].name);
+
+  const handleSetPanelistCount = (count: number) => {
+    const newPanelists = Array.from({ length: count }, () => ({
+      id: Math.random().toString(36),
+      name: "",
+      scores: {}
+    }));
+    setPanelists(newPanelists);
+    setShowCountSelector(false);
+  };
 
   const handleAddPanelist = () => {
     setPanelists([...panelists, { id: Math.random().toString(36), name: "", scores: {} }]);
@@ -97,28 +139,64 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
 
   return (
     <div className="space-y-4">
-      <div className={`border rounded p-3 flex gap-2 ${isFirst ? "bg-blue-50 border-blue-200" : "bg-green-50 border-green-200"}`}>
-        <Info className={`w-4 h-4 mt-0.5 flex-shrink-0 ${isFirst ? "text-blue-600" : "text-green-600"}`} />
-        <p className={`text-sm ${isFirst ? "text-blue-800" : "text-green-800"}`}>
+      <div className="border rounded-lg px-4 py-3 flex gap-2.5 items-center bg-muted/40 border-border/60">
+        <Info className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
+        <p className="text-sm font-medium text-foreground">
           {isFirst ? "First" : "Second"} Level Administrative Position Assessment
         </p>
       </div>
 
-      {/* Panelists Section */}
-      <div className="space-y-3 border rounded p-4 bg-muted/30">
-        <div className="flex items-center justify-between">
-          <Label className="text-base font-semibold">Panel of Evaluators</Label>
-          <Button type="button" variant="outline" size="sm" onClick={handleAddPanelist}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Panelist
-          </Button>
+      {/* Panelists Count Selector */}
+      {showCountSelector && (
+        <div className="space-y-3 border rounded-lg p-4 bg-muted/30 border-border/60">
+          <div>
+            <Label className="text-sm font-semibold text-foreground block mb-3">How many panelists will evaluate this applicant?</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {[1, 2, 3, 4, 5, 6].map((count) => (
+                <Button
+                  key={count}
+                  type="button"
+                  variant={panelists.length === count ? "default" : "outline"}
+                  size="sm"
+                  className={`w-8 h-8 text-sm font-semibold p-0 ${panelists.length === count ? "bg-primary text-white" : "border-border/60"}`}
+                  onClick={() => handleSetPanelistCount(count)}
+                >
+                  {count}
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">Select a number, and the form will be populated with that many panelist slots.</p>
+          </div>
         </div>
+      )}
 
-        {panelists.map((panelist, pIdx) => (
-          <div key={panelist.id} className="space-y-2 p-3 bg-background border rounded">
+      {/* Panelists Section */}
+      {!showCountSelector && (
+        <div className="space-y-3 border rounded-lg p-4 bg-muted/20 border-border/50">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-bold text-foreground">Panel of Evaluators ({panelists.length})</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground text-xs"
+                onClick={() => setShowCountSelector(true)}
+              >
+                Change Count
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={handleAddPanelist}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add More
+              </Button>
+            </div>
+          </div>
+
+          {panelists.map((panelist, pIdx) => (
+          <div key={panelist.id} className="space-y-2 p-3 bg-background border border-border/60 rounded-lg shadow-sm">
             <div className="flex items-end gap-3">
               <div className="flex-1 space-y-2">
-                <Label className="text-sm">Panelist {pIdx + 1} Name</Label>
+                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Panelist {pIdx + 1} Name</Label>
                 <input
                   type="text"
                   autoComplete="off"
@@ -148,7 +226,7 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
             </div>
 
             {/* Criteria for this panelist */}
-            <div className="grid grid-cols-2 gap-3 mt-3 p-2 bg-muted/50 rounded">
+            <div className="grid grid-cols-2 gap-3 mt-3 p-3 bg-muted/40 rounded-lg border border-border/30">
               {Object.entries(activeCriteria).map(([key, data]) => (
                 <div key={key} className="space-y-1">
                   <Label className="text-xs flex justify-between">
@@ -183,27 +261,29 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* Averages Display */}
       {panelists.length > 0 && (
-        <div className="space-y-2 p-3 bg-green-50 border border-green-200 rounded">
-          <Label className="text-sm font-semibold text-green-900">Calculated Averages</Label>
+        <div className="space-y-2 p-3 bg-muted/30 border border-border/60 rounded-lg">
+          <Label className="text-sm font-semibold text-foreground">Calculated Averages</Label>
           <div className="grid grid-cols-2 gap-2">
             {Object.entries(calculateAverages(panelists, activeCriteria)).map(([key, avg]) => {
               const criterionKey = key.replace("Avg", "");
               const criterionData = (activeCriteria as any)[criterionKey];
               const criterionName = criterionData?.name || criterionKey;
               return (
-                <div key={key} className="text-xs">
-                  <span className="font-medium">{criterionName}:</span>
-                  <span className="ml-2 text-green-700 font-semibold">{avg.toFixed(2)}</span>
+                <div key={key} className="text-xs flex justify-between items-center py-0.5">
+                  <span className="text-muted-foreground">{criterionName}:</span>
+                  <span className="font-semibold text-foreground">{avg.toFixed(2)}</span>
                 </div>
               );
             })}
           </div>
-          <div className="text-sm font-bold text-green-900 mt-2 pt-2 border-t border-green-200">
-            General Average: {calculateTotalScore(panelists, activeCriteria).toFixed(2)}
+          <div className="text-sm font-bold text-foreground mt-2 pt-2 border-t border-border/40 flex justify-between items-center">
+            <span>General Average</span>
+            <span>{calculateTotalScore(panelists, activeCriteria).toFixed(2)}</span>
           </div>
         </div>
       )}
@@ -322,6 +402,31 @@ export default function Evaluations() {
     setShowEdit(true);
   };
 
+  useEffect(() => {
+    if (!showEdit || !editingEvaluation) return;
+
+    const panelists = editingEvaluation.panelists ?? [];
+    if (panelists.length > 0) {
+      setEditPanelists(panelists.map((p) => ({
+        id: p.id,
+        name: p.name,
+        scores: { ...p.scores }
+      })));
+      return;
+    }
+
+    const fallbackCount = editingEvaluation.panelists?.length ?? 0;
+    if (fallbackCount > 0 && editPanelists.length === 0) {
+      setEditPanelists(
+        Array.from({ length: fallbackCount }, () => ({
+          id: Math.random().toString(36),
+          name: "",
+          scores: {}
+        }))
+      );
+    }
+  }, [showEdit, editingEvaluation, editPanelists.length]);
+
   const evaluationRows = useMemo(() => {
     return evaluations
       .map((evaluation) => {
@@ -358,7 +463,9 @@ export default function Evaluations() {
             <Button><Award className="w-4 h-4 mr-2" /> Add Application</Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Add Application for Evaluation</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>Add Application for Evaluation</DialogTitle>
+            </DialogHeader>
             <form className="space-y-4" onSubmit={(e) => {
               e.preventDefault();
 
@@ -373,6 +480,7 @@ export default function Evaluations() {
               }
 
               const criteria = vacancyLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA;
+              const averages = calculateAverages(formPanelists, criteria);
               const totalScore = calculateTotalScore(formPanelists, criteria);
 
               createMutation.mutate({
@@ -383,7 +491,7 @@ export default function Evaluations() {
                   name: p.name,
                   scores: p.scores
                 })),
-                ...calculateAverages(formPanelists, criteria),
+                ...mapAveragesToScorePayload(averages, vacancyLevel),
                 totalScore,
                 remarks: formRemarks
               } as any);
@@ -437,7 +545,9 @@ export default function Evaluations() {
         }}
       >
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Edit Evaluation</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Edit Evaluation</DialogTitle>
+          </DialogHeader>
           <div className="space-y-1 text-sm text-muted-foreground">
             <p>Applicant: {editingApplication ? getApplicantName(editingApplication.applicantId) : "Unknown"}</p>
             <p>Vacancy: {editingApplication ? getVacancyTitle(editingApplication.vacancyId) : "Unknown"}</p>
@@ -454,6 +564,7 @@ export default function Evaluations() {
               }
 
               const criteria = editingEvaluation?.positionLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA;
+              const averages = calculateAverages(editPanelists, criteria);
               const totalScore = calculateTotalScore(editPanelists, criteria);
 
               updateMutation.mutate({
@@ -465,7 +576,7 @@ export default function Evaluations() {
                     name: p.name,
                     scores: p.scores
                   })),
-                  ...calculateAverages(editPanelists, criteria),
+                  ...mapAveragesToScorePayload(averages, editingEvaluation?.positionLevel ?? "first_level"),
                   totalScore,
                   remarks: editRemarks
                 } as any
@@ -565,7 +676,7 @@ export default function Evaluations() {
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Position</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Level</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Panelists</th>
-                  <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide text-center">Total Score</th>
+                  <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide text-center">Avg Score</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Remarks</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide text-right">Actions</th>
                 </tr>
@@ -588,9 +699,11 @@ export default function Evaluations() {
                     <td className="px-4 py-3 text-muted-foreground">{ev.positionTitle}</td>
                     <td className="px-4 py-3 text-muted-foreground">{ev.displayLevel === "second_level" ? "Second Level" : "First Level"}</td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {ev.panelists?.length || 0} panelist{ev.panelists?.length !== 1 ? "s" : ""}
+                      {ev.panelists?.length ?? 0} panelist{(ev.panelists?.length ?? 0) !== 1 ? "s" : ""}
                     </td>
-                    <td className="px-4 py-3 text-center font-bold text-primary text-base">{ev.totalScore.toFixed(1)}</td>
+                    <td className="px-4 py-3 text-center font-bold text-primary text-base">
+                      {getAverageScore(ev.totalScore, ev.displayLevel).toFixed(1)}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{ev.remarks}</td>
                     <td className="px-4 py-3 text-right">
                       <DropdownMenu>
