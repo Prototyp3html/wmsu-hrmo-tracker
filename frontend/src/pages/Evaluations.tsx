@@ -14,7 +14,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createEvaluation, fetchApplicants, fetchApplications, fetchEvaluations, fetchJobs, updateEvaluation, deleteEvaluation } from "@/lib/api";
-import { Award, Trophy, Pencil, Trash2, Info, Ellipsis, X, Plus } from "lucide-react";
+import { Award, Trophy, Pencil, Trash2, Info, Ellipsis, X, Plus, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Evaluation, Panelist, PanelistScores } from "@/lib/types";
 
@@ -302,6 +302,7 @@ export default function Evaluations() {
   const [editingEvaluationId, setEditingEvaluationId] = useState<string | null>(null);
   const [positionFilter, setPositionFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState<"all" | "first_level" | "second_level">("all");
+  const [isExportingReport, setIsExportingReport] = useState(false);
 
   // Form state for panelists
   const [formPanelists, setFormPanelists] = useState<FormPanelist[]>([
@@ -451,6 +452,201 @@ export default function Evaluations() {
     });
   }, [evaluationRows, positionFilter, levelFilter]);
 
+  const handleExportSingleEvaluationPdf = async (evaluation: typeof evaluationRows[0]) => {
+    setIsExportingReport(true);
+    try {
+      const { jsPDF } = await import("jspdf");
+      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 36;
+      const contentWidth = pageWidth - margin * 2;
+      let cursorY = margin;
+
+      const ensureSpace = (requiredHeight: number) => {
+        if (cursorY + requiredHeight <= pageHeight - margin) return;
+        pdf.addPage();
+        cursorY = margin;
+      };
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(18);
+      pdf.text("Evaluation Report", pageWidth / 2, cursorY + 12, { align: "center" });
+      cursorY += 28;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.setTextColor(100);
+      pdf.text(`Generated: ${new Date().toLocaleString()}`, pageWidth / 2, cursorY + 6, { align: "center" });
+      cursorY += 18;
+
+      pdf.setTextColor(40);
+      pdf.setFontSize(11);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("Applicant Information", margin, cursorY + 8);
+      cursorY += 16;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(10);
+      pdf.text(`Applicant: ${evaluation.applicantName}`, margin + 10, cursorY + 6);
+      cursorY += 14;
+      pdf.text(`Position: ${evaluation.positionTitle}`, margin + 10, cursorY + 6);
+      cursorY += 14;
+      pdf.text(`Level: ${evaluation.displayLevel === "second_level" ? "Second Level" : "First Level"}`, margin + 10, cursorY + 6);
+      cursorY += 14;
+      pdf.text(`Average Score: ${getAverageScore(evaluation.totalScore, evaluation.displayLevel).toFixed(2)}`, margin + 10, cursorY + 6);
+      cursorY += 14;
+      if (evaluation.remarks) {
+        pdf.text(`Remarks: ${evaluation.remarks}`, margin + 10, cursorY + 6);
+        cursorY += 14;
+      }
+      cursorY += 16;
+
+      pdf.setDrawColor(180);
+      pdf.setLineWidth(0.5);
+      pdf.line(margin, cursorY, pageWidth - margin, cursorY);
+      cursorY += 20;
+
+      const criteria = evaluation.displayLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA;
+      
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(11);
+      pdf.setTextColor(40);
+      pdf.text("Panelist Scores by Criterion", margin, cursorY + 8);
+      cursorY += 16;
+
+      const headers = ["Panelist", ...Object.entries(criteria).map(([, data]) => data.name)];
+      const rows = (evaluation.panelists ?? []).map((panelist) => [
+        panelist.name,
+        ...Object.keys(criteria).map((key) => {
+          const score = panelist.scores[key];
+          return score !== undefined ? String(score) : "—";
+        })
+      ]);
+
+      const baseWidth = 90;
+      const criteriaCount = Object.keys(criteria).length;
+      const criteriaWidth = (contentWidth - baseWidth) / criteriaCount;
+      const widths = [baseWidth, ...Array(criteriaCount).fill(criteriaWidth)];
+      const normalizedWidths = widths.map((w) => w);
+
+      const drawRow = (values: string[], isHeader = false) => {
+        const cellLines = values.map((value, index) => pdf.splitTextToSize(value, normalizedWidths[index] - 8) as string[]);
+        const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * 10 + 6;
+        ensureSpace(rowHeight + 2);
+
+        let startX = margin;
+        values.forEach((value, index) => {
+          const width = normalizedWidths[index];
+          if (isHeader) {
+            pdf.setFillColor(192, 23, 47);
+            pdf.rect(startX, cursorY, width, rowHeight, "F");
+          }
+          pdf.setDrawColor(120);
+          pdf.rect(startX, cursorY, width, rowHeight);
+          pdf.setFont("helvetica", isHeader ? "bold" : "normal");
+          pdf.setTextColor(isHeader ? 255 : 40);
+          pdf.setFontSize(isHeader ? 8.5 : 9);
+          cellLines[index].forEach((line, lineIndex) => {
+            pdf.text(line, startX + 4, cursorY + 11 + lineIndex * 10);
+          });
+          startX += width;
+        });
+
+        pdf.setTextColor(0);
+        cursorY += rowHeight;
+      };
+
+      drawRow(headers, true);
+      if (rows.length === 0) {
+        drawRow(Array(headers.length).fill(""));
+      } else {
+        rows.forEach((row) => drawRow(row));
+      }
+
+      cursorY += 18;
+      pdf.setDrawColor(180);
+      pdf.setLineWidth(0.5);
+      pdf.line(margin, cursorY, pageWidth - margin, cursorY);
+      cursorY += 22;
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(11);
+      pdf.setTextColor(40);
+      pdf.text("Score Averages by Criterion", margin, cursorY + 8);
+      cursorY += 16;
+
+      const averages = calculateAverages(evaluation.panelists ?? [], criteria);
+      const averageRows = Object.entries(criteria).map(([key, data]) => {
+        const avg = averages[`${key}Avg`];
+        return [data.name, avg !== undefined ? avg.toFixed(2) : "—"];
+      });
+
+      const avgWidths = [contentWidth * 0.7, contentWidth * 0.3];
+      
+      const drawAverageHeaderRow = () => {
+        const headers = ["Criterion", "Average Score"];
+        const rowHeight = 12;
+        ensureSpace(rowHeight + 2);
+
+        let startX = margin;
+        headers.forEach((header, index) => {
+          const width = avgWidths[index];
+          pdf.setFillColor(192, 23, 47);
+          pdf.rect(startX, cursorY, width, rowHeight, "F");
+          pdf.setDrawColor(120);
+          pdf.rect(startX, cursorY, width, rowHeight);
+          pdf.setFont("helvetica", "bold");
+          pdf.setTextColor(255);
+          pdf.setFontSize(9);
+          pdf.text(header, startX + 4, cursorY + 9);
+          startX += width;
+        });
+        pdf.setTextColor(40);
+        cursorY += rowHeight;
+      };
+
+      drawAverageHeaderRow();
+
+      const drawAverageRow = (label: string, value: string, rowIndex: number) => {
+        const cellLines = [
+          pdf.splitTextToSize(label, avgWidths[0] - 8) as string[],
+          pdf.splitTextToSize(value, avgWidths[1] - 8) as string[]
+        ];
+        const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * 10 + 6;
+        ensureSpace(rowHeight + 2);
+
+        let startX = margin;
+        [label, value].forEach((val, index) => {
+          const width = avgWidths[index];
+          if (rowIndex % 2 === 0) {
+            pdf.setFillColor(245, 245, 245);
+            pdf.rect(startX, cursorY, width, rowHeight, "F");
+          }
+          pdf.setDrawColor(200);
+          pdf.rect(startX, cursorY, width, rowHeight);
+          pdf.setFont("helvetica", index === 1 ? "bold" : "normal");
+          pdf.setTextColor(40);
+          pdf.setFontSize(9);
+          cellLines[index].forEach((line, lineIndex) => {
+            pdf.text(line, startX + 4, cursorY + 11 + lineIndex * 10);
+          });
+          startX += width;
+        });
+        cursorY += rowHeight;
+      };
+
+      averageRows.forEach(([label, value], index) => drawAverageRow(label, value, index));
+
+      pdf.save(`evaluation-${evaluation.applicantName.replace(/\s+/g, "-")}.pdf`);
+      toast({ title: "Success", description: "Evaluation exported as PDF successfully!" });
+    } catch (error) {
+      toast({ title: "Export failed", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      setIsExportingReport(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -462,78 +658,78 @@ export default function Evaluations() {
           <DialogTrigger asChild>
             <Button><Award className="w-4 h-4 mr-2" /> Add Application</Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Add Application for Evaluation</DialogTitle>
-            </DialogHeader>
-            <form className="space-y-4" onSubmit={(e) => {
-              e.preventDefault();
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Add Application for Evaluation</DialogTitle>
+              </DialogHeader>
+              <form className="space-y-4" onSubmit={(e) => {
+                e.preventDefault();
 
-              if (!formApplicationId) {
-                toast({ title: "Error", description: "Please select an application", variant: "destructive" });
-                return;
-              }
+                if (!formApplicationId) {
+                  toast({ title: "Error", description: "Please select an application", variant: "destructive" });
+                  return;
+                }
 
-              if (formPanelists.some((p) => !p.name.trim())) {
-                toast({ title: "Error", description: "All panelists must have names", variant: "destructive" });
-                return;
-              }
+                if (formPanelists.some((p) => !p.name.trim())) {
+                  toast({ title: "Error", description: "All panelists must have names", variant: "destructive" });
+                  return;
+                }
 
-              const criteria = vacancyLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA;
-              const averages = calculateAverages(formPanelists, criteria);
-              const totalScore = calculateTotalScore(formPanelists, criteria);
+                const criteria = vacancyLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA;
+                const averages = calculateAverages(formPanelists, criteria);
+                const totalScore = calculateTotalScore(formPanelists, criteria);
 
-              createMutation.mutate({
-                applicationId: formApplicationId,
-                positionLevel: vacancyLevel,
-                panelists: formPanelists.map((p) => ({
-                  id: p.id,
-                  name: p.name,
-                  scores: p.scores
-                })),
-                ...mapAveragesToScorePayload(averages, vacancyLevel),
-                totalScore,
-                remarks: formRemarks
-              } as any);
-            }}>
-              <div className="space-y-2">
-                <Label>Application</Label>
-                <Select value={formApplicationId} onValueChange={setFormApplicationId}>
-                  <SelectTrigger><SelectValue placeholder="Select application" /></SelectTrigger>
-                  <SelectContent>
-                    {applications
-                      .filter((app) => !evaluations.some((e) => e.applicationId === app.id))
-                      .map((app) => (
-                        <SelectItem key={app.id} value={app.id}>
-                          {getApplicantName(app.applicantId)} — {getVacancyTitle(app.vacancyId)}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                createMutation.mutate({
+                  applicationId: formApplicationId,
+                  positionLevel: vacancyLevel,
+                  panelists: formPanelists.map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    scores: p.scores
+                  })),
+                  ...mapAveragesToScorePayload(averages, vacancyLevel),
+                  totalScore,
+                  remarks: formRemarks
+                } as any);
+              }}>
+                <div className="space-y-2">
+                  <Label>Application</Label>
+                  <Select value={formApplicationId} onValueChange={setFormApplicationId}>
+                    <SelectTrigger><SelectValue placeholder="Select application" /></SelectTrigger>
+                    <SelectContent>
+                      {applications
+                        .filter((app) => !evaluations.some((e) => e.applicationId === app.id))
+                        .map((app) => (
+                          <SelectItem key={app.id} value={app.id}>
+                            {getApplicantName(app.applicantId)} — {getVacancyTitle(app.vacancyId)}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              {formApplicationId && (
-                <EvalForm
-                  panelists={formPanelists}
-                  setPanelists={setFormPanelists}
-                  level={vacancyLevel as "first_level" | "second_level"}
-                />
-              )}
+                {formApplicationId && (
+                  <EvalForm
+                    panelists={formPanelists}
+                    setPanelists={setFormPanelists}
+                    level={vacancyLevel as "first_level" | "second_level"}
+                  />
+                )}
 
-              <div className="space-y-2">
-                <Label>Remarks</Label>
-                <Textarea
-                  placeholder="Assessment remarks..."
-                  value={formRemarks}
-                  onChange={(e) => setFormRemarks(e.target.value)}
-                />
-              </div>
-              <Button className="w-full" type="submit" disabled={createMutation.isPending}>
-                Save Assessment
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div className="space-y-2">
+                  <Label>Remarks</Label>
+                  <Textarea
+                    placeholder="Assessment remarks..."
+                    value={formRemarks}
+                    onChange={(e) => setFormRemarks(e.target.value)}
+                  />
+                </div>
+                <Button className="w-full" type="submit" disabled={createMutation.isPending}>
+                  Save Assessment
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
       </div>
 
       {/* Edit Dialog */}
@@ -716,6 +912,13 @@ export default function Evaluations() {
                           <DropdownMenuItem onClick={() => handleOpenEdit(ev)}>
                             <Pencil className="w-4 h-4 mr-2" />
                             Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleExportSingleEvaluationPdf(ev)}
+                            disabled={isExportingReport}
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            Export
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
