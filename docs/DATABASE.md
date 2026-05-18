@@ -377,4 +377,4 @@ AND (CURRENT_TIMESTAMP - INTERVAL '1 day' * archive_duration_days) >= created_at
 
 ---
 
-**Database Admin Contacts**: See SETUP.md for connection details.
+**Database Access Contact**: See SETUP.md for connection details.

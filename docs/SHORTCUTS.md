@@ -286,7 +286,7 @@ To share shortcut creation with team:
 
 ## ✅ Team Handover Checklist
 
-Ensure IT team knows about shortcuts:
+Ensure HR staff and the Head HR (Admin) know about shortcuts:
 
 - [ ] Team received project with `Create Desktop Shortcut.cmd`
 - [ ] Team successfully created desktop shortcut

@@ -124,17 +124,19 @@ wmsu-hrmo-tracker/
 
 All documentation is in the `/docs` folder:
 
+Operational setup note: WMSU HRMO primarily uses this system through HR staff accounts, and the Head HR (Attorney) serves as the admin account owner.
+
 | Document | For Whom | Purpose |
 |----------|----------|---------|
-| **[HANDOVER.md](./docs/HANDOVER.md)** ⭐ | All New Team | First-day onboarding checklist |
-| **[SHORTCUTS.md](./docs/SHORTCUTS.md)** | All Team | Desktop shortcuts for quick access |
-| **[SETUP.md](./docs/SETUP.md)** | DevOps, Backend Dev | Environment setup, database config, .env variables |
-| **[DEVELOPMENT.md](./docs/DEVELOPMENT.md)** | Frontend & Backend Dev | Development workflow, coding standards, testing |
-| **[API.md](./docs/API.md)** | Backend Dev, Integration | All API endpoints, request/response formats |
-| **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | Tech Lead, New Team | System design, data flow, key components |
-| **[DATABASE.md](./docs/DATABASE.md)** | Database Admin, Dev | Schema, tables, migrations, relationships |
-| **[DEPLOYMENT.md](./docs/DEPLOYMENT.md)** | DevOps, SysAdmin | Production build, cloud deployment options |
-| **[TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)** | All Team | Common issues and solutions |
+| **[HANDOVER.md](./docs/HANDOVER.md)** ⭐ | Head HR (Admin), HR Staff | First-day onboarding checklist |
+| **[SHORTCUTS.md](./docs/SHORTCUTS.md)** | HR Staff | Desktop shortcuts for quick access |
+| **[SETUP.md](./docs/SETUP.md)** | Assigned Technical Support | Environment setup, database config, .env variables |
+| **[DEVELOPMENT.md](./docs/DEVELOPMENT.md)** | Assigned Technical Support | Development workflow, coding standards, testing |
+| **[API.md](./docs/API.md)** | Assigned Technical Support | All API endpoints, request/response formats |
+| **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | Head HR (Admin), Assigned Technical Support | System design, data flow, key components |
+| **[DATABASE.md](./docs/DATABASE.md)** | Assigned Technical Support | Schema, tables, migrations, relationships |
+| **[DEPLOYMENT.md](./docs/DEPLOYMENT.md)** | Assigned Technical Support | Production build, cloud deployment options |
+| **[TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)** | HR Staff, Head HR (Admin), Assigned Technical Support | Common issues and solutions |
 
 ## 🔧 Setup & Configuration
 
@@ -284,7 +286,7 @@ See [API.md](./docs/API.md) for complete endpoint reference.
 
 ## 📞 Support & Handover
 
-### For New Team Members
+### For HR Staff and Head HR (Admin)
 
 1. **Start here**: [SETUP.md](./docs/SETUP.md) - Get development environment running
 2. **Understand architecture**: [ARCHITECTURE.md](./docs/ARCHITECTURE.md) - Learn the system design
@@ -306,7 +308,7 @@ See [TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md) for:
 **Handover Date**: May 7, 2026  
 **Status**: ✅ Production Ready
 
-For questions, refer to documentation in `/docs` or contact the development team.
+For questions, refer to documentation in `/docs` or coordinate with the Head HR (Admin) and assigned technical support contact.
 
 Start the web app server:
 

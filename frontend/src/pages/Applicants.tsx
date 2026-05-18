@@ -3041,7 +3041,7 @@ export default function Applicants() {
               }
 
               if (!formState.sex) {
-                toast({ title: "Missing sex at birth", description: "Select sex at birth.", variant: "destructive" });
+                toast({ title: "Missing gender", description: "Select gender.", variant: "destructive" });
                 return;
               }
 
@@ -3219,9 +3219,9 @@ export default function Applicants() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Sex at Birth</Label>
+                  <Label>Gender</Label>
                   <Select value={formState.sex || undefined} onValueChange={(value) => setFormState((prev) => ({ ...prev, sex: value }))}>
-                    <SelectTrigger><SelectValue placeholder="Select sex" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Male">Male</SelectItem>
                       <SelectItem value="Female">Female</SelectItem>
@@ -4499,9 +4499,9 @@ export default function Applicants() {
                     <Input type="date" value={editFormState.dateOfBirth} onChange={(e) => setEditFormState((prev) => ({ ...prev, dateOfBirth: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Sex at Birth</Label>
+                    <Label>Gender</Label>
                     <Select value={editFormState.sex || undefined} onValueChange={(value) => setEditFormState((prev) => ({ ...prev, sex: value }))}>
-                      <SelectTrigger><SelectValue placeholder="Select sex" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Male">Male</SelectItem>
                         <SelectItem value="Female">Female</SelectItem>
@@ -5071,7 +5071,7 @@ export default function Applicants() {
                         ["Telephone No.", applicant.telephoneNumber],
                         ["Date of Birth", applicant.dateOfBirth],
                         ["Place of Birth", applicant.placeOfBirth],
-                        ["Sex at Birth", applicant.sex],
+                        ["Gender", applicant.sex],
                         ["Civil Status", applicant.civilStatus],
                         ["Citizenship", applicant.citizenship],
                         ["Citizenship Details", applicant.citizenshipDetails],

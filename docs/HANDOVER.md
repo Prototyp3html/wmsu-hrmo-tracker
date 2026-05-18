@@ -1,4 +1,4 @@
-# Project Handover - IT Team Onboarding Guide
+# Project Handover - HR Staff and Head HR (Admin) Guide
 
 **Date**: May 6, 2026  
 **Handover Date**: May 7, 2026  
@@ -275,7 +275,7 @@ For a new team member:
 
 ## ✅ Sign-Off Checklist
 
-Before IT team takes over, ensure:
+Before HR staff and the Head HR (Admin) take over, ensure:
 
 - [ ] Team can run dev environment locally
 - [ ] Team can build for production
