@@ -51,6 +51,18 @@ const AVAILABLE_PLACEHOLDERS = [
 
 const REQUIRED_PLACEHOLDERS = ["{{applicantName}}", "{{jobTitle}}", "{{date}}"] as const;
 
+const DEFAULT_TEMPLATE_KEYS = new Set([
+  "not_qualified",
+  "non_teaching",
+  "teaching",
+  "qualification_notice",
+  "hired"
+]);
+
+function isDefaultTemplate(template: EmailTemplate) {
+  return DEFAULT_TEMPLATE_KEYS.has(template.templateKey);
+}
+
 function getPlaceholderRanges(text: string) {
   return REQUIRED_PLACEHOLDERS.flatMap((placeholder) => {
     const ranges: Array<{ start: number; end: number }> = [];
@@ -398,8 +410,14 @@ export default function Archive() {
   }, [rows, search, statusFilter]);
 
   const templatesByGroup = useMemo(() => ({
-    rejection: emailTemplates.filter((t) => t.templateGroup === "rejection"),
-    qualification: emailTemplates.filter((t) => t.templateGroup === "qualification")
+    rejection: emailTemplates.filter((t) => t.templateGroup === "rejection").filter((template) => {
+      if (!isDefaultTemplate(template)) return true;
+      return !emailTemplates.some((entry) => !isDefaultTemplate(entry) && entry.linkedStatus === template.linkedStatus);
+    }),
+    qualification: emailTemplates.filter((t) => t.templateGroup === "qualification").filter((template) => {
+      if (!isDefaultTemplate(template)) return true;
+      return !emailTemplates.some((entry) => !isDefaultTemplate(entry) && entry.linkedStatus === template.linkedStatus);
+    })
   }), [emailTemplates]);
 
   const bodyPreview = (body: string) => body.replace(/\s+/g, " ").trim().slice(0, 200);

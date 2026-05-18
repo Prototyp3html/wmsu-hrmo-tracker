@@ -39,6 +39,18 @@ const nextStepHints: Partial<Record<ApplicationStatus, string>> = {
   "Approved": "Mark as Hired when appointment is confirmed."
 };
 
+const DEFAULT_TEMPLATE_KEYS = new Set([
+  "not_qualified",
+  "non_teaching",
+  "teaching",
+  "qualification_notice",
+  "hired"
+]);
+
+function isDefaultTemplate(template: EmailTemplate) {
+  return DEFAULT_TEMPLATE_KEYS.has(template.templateKey);
+}
+
 function renderTemplateText(template: string, variables: Record<string, string>) {
   return template.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_match, key: string) => variables[key] ?? "");
 }
@@ -126,26 +138,9 @@ export default function ApplicationTracking() {
   const getVacancyTitle = (id: string) =>
     jobVacancies.find((v) => v.id === id)?.positionTitle ?? "Unknown";
 
-  const getTemplateStatus = (template: EmailTemplate): string => {
-    if (template.linkedStatus) return template.linkedStatus;
-
-    switch (template.templateKey) {
-      case "not_qualified":
-      case "non_teaching":
-      case "teaching":
-        return "Rejected";
-      case "qualification_notice":
-        return "Approved";
-      case "hired":
-        return "Hired";
-      default:
-        return "";
-    }
-  };
-
   // Get all templates linked to a given status
   const getTemplatesForStatus = (status: string): EmailTemplate[] =>
-    emailTemplates.filter((t) => getTemplateStatus(t) === status);
+    emailTemplates.filter((t) => t.linkedStatus === status);
 
   // Render a template body with variables substituted
   const renderTemplate = (template: EmailTemplate, applicantName: string, jobTitle: string, extraVars?: Record<string, string>) => {

@@ -559,18 +559,7 @@ function buildPasswordResetUrl(token: string, req?: Request) {
 
 async function ensureEmailTemplates() {
   for (const template of DEFAULT_EMAIL_TEMPLATES) {
-    await query(
-      `INSERT INTO email_templates (template_key, template_name, template_group, linked_status, subject, body, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (template_key)
-       DO UPDATE SET template_name = EXCLUDED.template_name,
-                     template_group = EXCLUDED.template_group,
-                     linked_status = EXCLUDED.linked_status,
-                     subject = EXCLUDED.subject,
-                     body = EXCLUDED.body,
-                     updated_at = EXCLUDED.updated_at`,
-      [template.template_key, template.template_name, template.template_group, template.linked_status, template.subject, template.body, new Date().toISOString()]
-    );
+    await query("DELETE FROM email_templates WHERE template_key = $1", [template.template_key]);
   }
 }
 
@@ -689,47 +678,6 @@ async function sendApplicationStatusEmail(payload: {
       date: formattedDate,
       today: formattedDate
     });
-  }
-
-  // Use built-in rejection template if no custom template was selected.
-  if (!selectedTemplate && payload.status === "Rejected" && payload.rejectionSubtype) {
-    const template = await fetchEmailTemplateByKey(payload.rejectionSubtype) ?? DEFAULT_EMAIL_TEMPLATES.find((entry) => entry.template_key === payload.rejectionSubtype) ?? null;
-    if (template) {
-      subject = template.subject;
-      body = renderTemplateText(template.body, {
-        applicantName: payload.applicantName,
-        jobTitle: payload.jobTitle,
-        date: formattedDate,
-        today: formattedDate
-      });
-    }
-  }
-
-  if (!selectedTemplate && payload.status === "Approved") {
-    const template = await fetchEmailTemplateByKey("qualification_notice") ?? DEFAULT_EMAIL_TEMPLATES.find((entry) => entry.template_key === "qualification_notice") ?? null;
-    if (template) {
-      subject = template.subject;
-      body = renderTemplateText(template.body, {
-        applicantName: payload.applicantName,
-        jobTitle: payload.jobTitle,
-        date: formattedDate,
-        today: formattedDate
-      });
-    }
-  }
-
-  // Use hired template if status is Hired and no custom template was selected.
-  if (!selectedTemplate && payload.status === "Hired") {
-    const template = await fetchEmailTemplateByKey("hired") ?? DEFAULT_EMAIL_TEMPLATES.find((entry) => entry.template_key === "hired") ?? null;
-    if (template) {
-      subject = template.subject;
-      body = renderTemplateText(template.body, {
-        applicantName: payload.applicantName,
-        jobTitle: payload.jobTitle,
-        date: formattedDate,
-        today: formattedDate
-      });
-    }
   }
 
   if (payload.status === "Rejected" && payload.rejectionTemplateText?.trim()) {
@@ -3623,7 +3571,7 @@ async function start() {
   await ensureTestAccounts();
   await ensureSampleApplicants();
   await ensureEmailTemplates();
-  
+
   // Run archival jobs
   await archiveExpiredVacancies();
   await cleanupOldArchivedVacancies();
