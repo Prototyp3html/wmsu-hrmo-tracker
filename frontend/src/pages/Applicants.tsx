@@ -759,7 +759,7 @@ function buildApplicantExportLines(applicant: Applicant, applications: Applicati
   pushField("Height", applicant.height);
   pushField("Weight", applicant.weight);
   pushField("Blood Type", applicant.bloodType);
-  pushField("GSIS ID No.", applicant.gsisIdNo);
+  pushField("UMID ID No.", applicant.gsisIdNo);
   pushField("PhilSys No.", applicant.philsysNo);
   pushField("PAG-IBIG No.", applicant.pagibigIdNo);
   pushField("PhilHealth No.", applicant.philhealthNo);
@@ -1488,7 +1488,7 @@ export default function Applicants() {
 
         // IDs row 1
         const idH = 6.5, idW = CW/4;
-        lvc("15.  GSIS ID NO.",      applicant.gsisIdNo   ||"", ML,          y, idW, idH);
+        lvc("15.  UMID ID NO.",      applicant.gsisIdNo   ||"", ML,          y, idW, idH);
         lvc("16.  PAG-IBIG ID NO.",  applicant.pagibigIdNo||"", ML+idW,      y, idW, idH);
         lvc("17.  PHILHEALTH NO.",   applicant.philhealthNo||"",ML+idW*2,    y, idW, idH);
         lvc("18.  SSS NO.",          applicant.sssNo      ||"", ML+idW*3,    y, idW, idH);
@@ -1820,7 +1820,7 @@ export default function Applicants() {
             ["Address", formatExportValue(applicant.address)],
             ["Permanent Address", formatExportValue(applicant.permanentAddress)],
             ["Telephone / Mobile / Email", `${formatExportValue(applicant.telephoneNumber)} / ${formatExportValue(applicant.contactNumber)} / ${formatExportValue(applicant.email)}`],
-            ["GSIS / PAG-IBIG / PHILHEALTH", `${formatExportValue(applicant.gsisIdNo)} / ${formatExportValue(applicant.pagibigIdNo)} / ${formatExportValue(applicant.philhealthNo)}`],
+            ["UMID / PAG-IBIG / PHILHEALTH", `${formatExportValue(applicant.gsisIdNo)} / ${formatExportValue(applicant.pagibigIdNo)} / ${formatExportValue(applicant.philhealthNo)}`],
             ["PhilSys / SSS / TIN / Agency No.", `${formatExportValue(applicant.philsysNo)} / ${formatExportValue(applicant.sssNo)} / ${formatExportValue(applicant.tinNo)} / ${formatExportValue(applicant.agencyEmployeeNo)}`]
           ]),
           mkHeading("II. Family Background"),
@@ -2090,7 +2090,7 @@ export default function Applicants() {
 
               <!-- Row 8: IDs row 1 -->
               <tr>
-                ${lvc("15.&nbsp;&nbsp;GSIS ID NO.", applicant.gsisIdNo || "", RH_IDS, "width:25%;")}
+                ${lvc("15.&nbsp;&nbsp;UMID ID NO.", applicant.gsisIdNo || "", RH_IDS, "width:25%;")}
                 ${lvc("16.&nbsp;&nbsp;PAG-IBIG ID NO.", applicant.pagibigIdNo || "", RH_IDS, "width:25%;")}
                 ${lvc("17.&nbsp;&nbsp;PHILHEALTH NO.", applicant.philhealthNo || "", RH_IDS, "width:25%;")}
                 ${lvc("18.&nbsp;&nbsp;SSS NO.", applicant.sssNo || "", RH_IDS, "width:25%;")}
@@ -5079,7 +5079,7 @@ export default function Applicants() {
                         ["Weight", applicant.weight],
                         ["Blood Type", applicant.bloodType],
                         ["Permanent Address", applicant.permanentAddress],
-                        ["GSIS ID No.", applicant.gsisIdNo],
+                        ["UMID ID No.", applicant.gsisIdNo],
                         ["PhilSys No.", applicant.philsysNo],
                         ["PAG-IBIG No.", applicant.pagibigIdNo],
                         ["PhilHealth No.", applicant.philhealthNo],
