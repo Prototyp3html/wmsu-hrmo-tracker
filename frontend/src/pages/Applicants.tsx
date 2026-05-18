@@ -3383,6 +3383,16 @@ export default function Applicants() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
+                  <Label>SSS No.</Label>
+                  <Input
+                    placeholder="SSS number"
+                    value={formState.sssNo}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, sssNo: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
                   <Label>TIN No.</Label>
                   <Input
                     placeholder="TIN number"
