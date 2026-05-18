@@ -308,10 +308,26 @@ type EmailTemplateRecord = {
   template_key: EmailTemplateKey;
   template_name: string;
   template_group: "rejection" | "qualification";
+  linked_status: string;
   subject: string;
   body: string;
   updated_at: string;
 };
+
+function defaultLinkedStatusForTemplateKey(templateKey: EmailTemplateKey): string {
+  switch (templateKey) {
+    case "not_qualified":
+    case "non_teaching":
+    case "teaching":
+      return "Rejected";
+    case "qualification_notice":
+      return "Approved";
+    case "hired":
+      return "Hired";
+    default:
+      return "";
+  }
+}
 
 type EvaluationPanelist = {
   id: string;
@@ -324,6 +340,7 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_key: "not_qualified",
     template_name: "Letter for Not Qualified Applicants",
     template_group: "rejection",
+    linked_status: "Rejected",
     subject: "Application Status Update: Not Qualified",
     body: [
       "Date: {{date}}",
@@ -343,6 +360,7 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_key: "non_teaching",
     template_name: "Letter of Regret (For Interviewed Non-Teaching Applicants)",
     template_group: "rejection",
+    linked_status: "Rejected",
     subject: "Application Status Update: Not Selected",
     body: [
       "Date: {{date}}",
@@ -368,6 +386,7 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_key: "teaching",
     template_name: "Letter of Regret (For Interviewed Teaching Applicants)",
     template_group: "rejection",
+    linked_status: "Rejected",
     subject: "Application Status Update: Not Selected",
     body: [
       "Date: {{date}}",
@@ -393,6 +412,7 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_key: "qualification_notice",
     template_name: "Qualification Notice",
     template_group: "qualification",
+    linked_status: "Approved",
     subject: "Application Status Update: Qualified",
     body: [
       "Dear {{applicantName}},",
@@ -412,6 +432,7 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_key: "hired",
     template_name: "Hired Notice",
     template_group: "qualification",
+    linked_status: "Hired",
     subject: "Application Status Update: Hired",
     body: [
       "Dear {{applicantName}}:",
@@ -553,9 +574,14 @@ async function ensureEmailTemplates() {
     const existing = await query<{ template_key: string }>("SELECT template_key FROM email_templates WHERE template_key = $1", [template.template_key]);
     if (existing.rowCount === 0) {
       await query(
-        "INSERT INTO email_templates (template_key, template_name, template_group, subject, body, updated_at) VALUES ($1, $2, $3, $4, $5, $6)",
-        [template.template_key, template.template_name, template.template_group, template.subject, template.body, new Date().toISOString()]
+        "INSERT INTO email_templates (template_key, template_name, template_group, linked_status, subject, body, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        [template.template_key, template.template_name, template.template_group, template.linked_status, template.subject, template.body, new Date().toISOString()]
       );
+    } else {
+      await query(
+        "UPDATE email_templates SET linked_status = $2 WHERE template_key = $1 AND COALESCE(linked_status, '') = ''",
+        [template.template_key, template.linked_status || defaultLinkedStatusForTemplateKey(template.template_key)]
+      ).catch(() => {});
     }
   }
 }
@@ -641,6 +667,7 @@ async function sendApplicationStatusEmail(payload: {
   status: string;
   remarks?: string;
   rejectionSubtype?: RejectionSubtype;
+  selectedTemplateKey?: string;
   rejectionTemplateText?: string;
   qualificationTemplateText?: string;
   workflow: {
@@ -662,8 +689,22 @@ async function sendApplicationStatusEmail(payload: {
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const formattedDate = formatTemplateDate(sentAt);
 
-  // Use rejection template if status is Rejected
-  if (payload.status === "Rejected" && payload.rejectionSubtype) {
+  const selectedTemplate = payload.selectedTemplateKey
+    ? await fetchEmailTemplateByKey(payload.selectedTemplateKey as EmailTemplateKey)
+    : null;
+
+  if (selectedTemplate) {
+    subject = selectedTemplate.subject;
+    body = renderTemplateText(selectedTemplate.body, {
+      applicantName: payload.applicantName,
+      jobTitle: payload.jobTitle,
+      date: formattedDate,
+      today: formattedDate
+    });
+  }
+
+  // Use built-in rejection template if no custom template was selected.
+  if (!selectedTemplate && payload.status === "Rejected" && payload.rejectionSubtype) {
     const template = await fetchEmailTemplateByKey(payload.rejectionSubtype) ?? DEFAULT_EMAIL_TEMPLATES.find((entry) => entry.template_key === payload.rejectionSubtype) ?? null;
     if (template) {
       subject = template.subject;
@@ -676,7 +717,7 @@ async function sendApplicationStatusEmail(payload: {
     }
   }
 
-  if (payload.status === "Approved") {
+  if (!selectedTemplate && payload.status === "Approved") {
     const template = await fetchEmailTemplateByKey("qualification_notice") ?? DEFAULT_EMAIL_TEMPLATES.find((entry) => entry.template_key === "qualification_notice") ?? null;
     if (template) {
       subject = template.subject;
@@ -689,8 +730,8 @@ async function sendApplicationStatusEmail(payload: {
     }
   }
 
-  // Use hired template if status is Hired
-  if (payload.status === "Hired") {
+  // Use hired template if status is Hired and no custom template was selected.
+  if (!selectedTemplate && payload.status === "Hired") {
     const template = await fetchEmailTemplateByKey("hired") ?? DEFAULT_EMAIL_TEMPLATES.find((entry) => entry.template_key === "hired") ?? null;
     if (template) {
       subject = template.subject;
@@ -2797,6 +2838,7 @@ app.patch("/api/applications/:id/status", requireAuth, asyncHandler(async (req: 
     finalEvaluationVenue,
     notifyApplicant,
     rejectionSubtype,
+    selectedTemplateKey,
     rejectionTemplateText
     ,qualificationTemplateText
   } = req.body as {
@@ -2814,6 +2856,7 @@ app.patch("/api/applications/:id/status", requireAuth, asyncHandler(async (req: 
     finalEvaluationVenue?: string;
     notifyApplicant?: boolean;
     rejectionSubtype?: RejectionSubtype;
+    selectedTemplateKey?: string;
     rejectionTemplateText?: string;
     qualificationTemplateText?: string;
   };
@@ -2937,6 +2980,7 @@ app.patch("/api/applications/:id/status", requireAuth, asyncHandler(async (req: 
         status,
         remarks,
         rejectionSubtype,
+        selectedTemplateKey,
         rejectionTemplateText,
         qualificationTemplateText,
         workflow: {
@@ -3008,17 +3052,59 @@ app.get("/api/email-templates", requireAuth, asyncHandler(async (_req, res) => {
     templateKey: row.template_key,
     templateName: row.template_name,
     templateGroup: row.template_group,
+    linkedStatus: row.linked_status,
     subject: row.subject,
     body: row.body,
     updatedAt: row.updated_at
   })));
 }));
 
-app.put("/api/email-templates/:templateKey", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const templateKey = req.params.templateKey as EmailTemplateKey;
-  const { templateName, templateGroup, subject, body } = req.body as {
+app.post("/api/email-templates", requireAuth, requireAdmin, asyncHandler(async (req: AuthedRequest, res) => {
+  const {
+    templateName,
+    templateGroup,
+    linkedStatus,
+    subject,
+    body
+  } = req.body as {
     templateName?: string;
     templateGroup?: "rejection" | "qualification";
+    linkedStatus?: string;
+    subject?: string;
+    body?: string;
+  };
+
+  if (!templateName || !templateGroup || !linkedStatus || !subject || !body) {
+    res.status(400).json({ error: "templateName, templateGroup, linkedStatus, subject, and body are required" });
+    return;
+  }
+
+  const templateKey = randomUUID();
+  const updatedAt = new Date().toISOString();
+
+  await query(
+    `INSERT INTO email_templates (template_key, template_name, template_group, linked_status, subject, body, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [templateKey, templateName.trim(), templateGroup, linkedStatus.trim(), subject.trim(), body, updatedAt]
+  );
+
+  res.status(201).json({
+    templateKey,
+    templateName: templateName.trim(),
+    templateGroup,
+    linkedStatus: linkedStatus.trim(),
+    subject: subject.trim(),
+    body,
+    updatedAt
+  });
+}));
+
+app.put("/api/email-templates/:templateKey", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const templateKey = req.params.templateKey as EmailTemplateKey;
+  const { templateName, templateGroup, linkedStatus, subject, body } = req.body as {
+    templateName?: string;
+    templateGroup?: "rejection" | "qualification";
+    linkedStatus?: string;
     subject?: string;
     body?: string;
   };
@@ -3028,17 +3114,20 @@ app.put("/api/email-templates/:templateKey", requireAuth, requireAdmin, asyncHan
     return;
   }
 
+  const resolvedLinkedStatus = String(linkedStatus ?? "").trim() || (templateGroup === "rejection" ? "Rejected" : "Approved");
+
   const updatedAt = new Date().toISOString();
   await query(
-    `INSERT INTO email_templates (template_key, template_name, template_group, subject, body, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO email_templates (template_key, template_name, template_group, linked_status, subject, body, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (template_key)
      DO UPDATE SET template_name = EXCLUDED.template_name,
                    template_group = EXCLUDED.template_group,
+                   linked_status = EXCLUDED.linked_status,
                    subject = EXCLUDED.subject,
                    body = EXCLUDED.body,
                    updated_at = EXCLUDED.updated_at`,
-    [templateKey, templateName, templateGroup, subject, body, updatedAt]
+    [templateKey, templateName, templateGroup, resolvedLinkedStatus, subject, body, updatedAt]
   );
 
   const saved = await fetchEmailTemplateByKey(templateKey);
@@ -3051,10 +3140,21 @@ app.put("/api/email-templates/:templateKey", requireAuth, requireAdmin, asyncHan
     templateKey: saved.template_key,
     templateName: saved.template_name,
     templateGroup: saved.template_group,
+    linkedStatus: saved.linked_status,
     subject: saved.subject,
     body: saved.body,
     updatedAt: saved.updated_at
   });
+}));
+
+app.delete("/api/email-templates/:templateKey", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const result = await query("DELETE FROM email_templates WHERE template_key = $1", [req.params.templateKey]);
+  if (result.rowCount === 0) {
+    res.status(404).json({ error: "Email template not found" });
+    return;
+  }
+
+  res.status(204).send();
 }));
 
 app.get("/api/evaluations", asyncHandler(async (_req, res) => {

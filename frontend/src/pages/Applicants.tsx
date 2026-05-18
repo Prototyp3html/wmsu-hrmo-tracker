@@ -2519,6 +2519,7 @@ export default function Applicants() {
       weight: "",
       bloodType: "",
       gsisIdNo: "",
+      umidIdNo: "",
       philsysNo: "",
       pagibigIdNo: "",
       philhealthNo: "",

@@ -126,9 +126,26 @@ export default function ApplicationTracking() {
   const getVacancyTitle = (id: string) =>
     jobVacancies.find((v) => v.id === id)?.positionTitle ?? "Unknown";
 
+  const getTemplateStatus = (template: EmailTemplate): string => {
+    if (template.linkedStatus) return template.linkedStatus;
+
+    switch (template.templateKey) {
+      case "not_qualified":
+      case "non_teaching":
+      case "teaching":
+        return "Rejected";
+      case "qualification_notice":
+        return "Approved";
+      case "hired":
+        return "Hired";
+      default:
+        return "";
+    }
+  };
+
   // Get all templates linked to a given status
   const getTemplatesForStatus = (status: string): EmailTemplate[] =>
-    emailTemplates.filter((t) => t.linkedStatus === status);
+    emailTemplates.filter((t) => getTemplateStatus(t) === status);
 
   // Render a template body with variables substituted
   const renderTemplate = (template: EmailTemplate, applicantName: string, jobTitle: string, extraVars?: Record<string, string>) => {
@@ -398,10 +415,10 @@ export default function ApplicationTracking() {
                                       </div>
                                     )}
 
-                                    {/* Dynamic email template picker — shown for any status that has templates */}
+                                    {/* Dynamic email template picker — shown only when there is a real choice */}
                                     {statusForm && (() => {
                                       const templates = getTemplatesForStatus(statusForm.status);
-                                      if (templates.length === 0) return null;
+                                      if (templates.length < 2) return null;
                                       return (
                                         <div className={`space-y-2 rounded-md border p-3 ${statusForm.status === "Rejected" ? "bg-amber-50" : "bg-emerald-50"}`}>
                                           <Label className="font-semibold">Email Template</Label>
@@ -471,12 +488,18 @@ export default function ApplicationTracking() {
                                           return;
                                         }
 
-                                        // If this status has templates and notify is on, require one to be selected
+                                        // If this status has multiple templates and notify is on, require one to be selected
                                         const templatesForStatus = getTemplatesForStatus(statusForm.status);
-                                        if (statusForm.notifyApplicant && templatesForStatus.length > 0 && !statusForm.selectedTemplateKey) {
+                                        const chosenTemplate = templatesForStatus.length === 1 ? templatesForStatus[0] : null;
+                                        if (statusForm.notifyApplicant && templatesForStatus.length > 1 && !statusForm.selectedTemplateKey) {
                                           toast({ title: "Requirement missing", description: "Please select an email template for this status.", variant: "destructive" });
                                           return;
                                         }
+
+                                        const selectedTemplateKey = statusForm.selectedTemplateKey || chosenTemplate?.templateKey;
+                                        const emailTemplateText = statusForm.emailTemplateText.trim() || (chosenTemplate
+                                          ? renderTemplate(chosenTemplate, applicantName, jobTitle)
+                                          : undefined);
 
                                         updateMutation.mutate({
                                           id: app.id,
@@ -493,8 +516,8 @@ export default function ApplicationTracking() {
                                           finalEvaluationTime: statusForm.finalEvaluationTime || undefined,
                                           finalEvaluationVenue: statusForm.finalEvaluationVenue.trim() || undefined,
                                           notifyApplicant: statusForm.notifyApplicant,
-                                          selectedTemplateKey: statusForm.selectedTemplateKey || undefined,
-                                          emailTemplateText: statusForm.emailTemplateText.trim() || undefined
+                                          selectedTemplateKey: selectedTemplateKey || undefined,
+                                          emailTemplateText: emailTemplateText || undefined
                                         });
                                       }}
                                     >

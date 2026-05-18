@@ -411,7 +411,7 @@ export default function Archive() {
       templateGroup: template.templateGroup,
       subject: template.subject,
       body: template.body,
-      linkedStatus: ""
+      linkedStatus: template.linkedStatus ?? (template.templateGroup === "rejection" ? "Rejected" : "Approved")
     });
   };
 
@@ -692,6 +692,7 @@ export default function Archive() {
                   payload: {
                     templateName: editForm.templateName,
                     templateGroup: editForm.templateGroup,
+                    linkedStatus: editForm.linkedStatus,
                     subject: editForm.subject,
                     body: editForm.body
                   }

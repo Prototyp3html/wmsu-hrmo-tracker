@@ -337,6 +337,7 @@ export async function initDb() {
     ALTER TABLE email_templates
     ADD COLUMN IF NOT EXISTS template_name TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS template_group TEXT NOT NULL DEFAULT 'rejection',
+    ADD COLUMN IF NOT EXISTS linked_status TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS subject TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS body TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS updated_at TEXT NOT NULL DEFAULT '';
