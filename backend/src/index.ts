@@ -341,7 +341,7 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_name: "Letter for Not Qualified Applicants",
     template_group: "rejection",
     linked_status: "Rejected",
-    subject: "Application Status Update: Not Qualified",
+    subject: "Not Qualified",
     body: [
       "Date: {{date}}",
       "",
@@ -361,23 +361,17 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_name: "Letter of Regret (For Interviewed Non-Teaching Applicants)",
     template_group: "rejection",
     linked_status: "Rejected",
-    subject: "Application Status Update: Not Selected",
+    subject: "Not Selected",
     body: [
       "Date: {{date}}",
       "",
-      "___________________________________",
-      "___________________________________",
-      "___________________________________",
-      "",
-      "Dear {{applicantName}},",
-      "",
-      "This refers to your application for the position of {{jobTitle}} at Western Mindanao State University.",
-      "We appreciate the interest you have shown and the time you have spent on the interview with us. However, please be informed that a candidate for the said position has already been selected.",
-      "We genuinely appreciate and thank you for your interest in joining the WMSU Community.",
-      "",
-      "Very truly yours,",
-      "",
-      "______________________________________________",
+      "Dear Mr./Ms. {{applicantName}}:",
+      "Thank you for your interest in the {{jobTitle}} and for the time and effort you invested in your application.",
+      "After careful review and evaluation of all applications, we regret to inform you that you were not selected for the position. While your qualifications and experiences are valued, the selection process was highly competitive, and only applicants who fully met the qualifications and requirements were considered for appointment.",
+      "We sincerely thank you for the interest you have shown in our organization and encourage you to continue seeking opportunities with us in the future.",
+      "Once again, thank you for considering Western Mindanao State University.",
+      "Respectfully,",
+      "________________________________",
       "Human Resource Management Officer III"
     ].join("\n"),
     updated_at: ""
@@ -387,23 +381,17 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_name: "Letter of Regret (For Interviewed Teaching Applicants)",
     template_group: "rejection",
     linked_status: "Rejected",
-    subject: "Application Status Update: Not Selected",
+    subject: "Not Selected",
     body: [
       "Date: {{date}}",
       "",
-      "___________________________________",
-      "___________________________________",
-      "___________________________________",
-      "",
-      "Dear {{applicantName}},",
-      "",
-      "This refers to your application for the position of {{jobTitle}} at Western Mindanao State University.",
-      "We appreciate the interest you have shown and the time you have spent on the Teaching Demonstration and/or Interview with us. However, please be informed that a candidate for the said position has already been selected.",
-      "We genuinely appreciate and thank you for your interest in joining the WMSU Community.",
-      "",
-      "Very truly yours,",
-      "",
-      "______________________________________________",
+      "Dear Mr./Ms. {{applicantName}}:",
+      "Thank you for your interest in the {{jobTitle}} and for the time and effort you invested in your application.",
+      "After careful review and evaluation of all applications, we regret to inform you that you were not selected for the position. While your qualifications and experiences are valued, the selection process was highly competitive, and only applicants who fully met the qualifications and requirements were considered for appointment.",
+      "We sincerely thank you for the interest you have shown in our organization and encourage you to continue seeking opportunities with us in the future.",
+      "Once again, thank you for considering Western Mindanao State University.",
+      "Respectfully,",
+      "________________________________",
       "Human Resource Management Officer III"
     ].join("\n"),
     updated_at: ""
@@ -413,7 +401,7 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_name: "Qualification Notice",
     template_group: "qualification",
     linked_status: "Approved",
-    subject: "Application Status Update: Qualified",
+    subject: "Qualified",
     body: [
       "Dear {{applicantName}},",
       "",
@@ -433,7 +421,7 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     template_name: "Hired Notice",
     template_group: "qualification",
     linked_status: "Hired",
-    subject: "Application Status Update: Hired",
+    subject: "Hired",
     body: [
       "Dear {{applicantName}}:",
       "",
@@ -571,18 +559,18 @@ function buildPasswordResetUrl(token: string, req?: Request) {
 
 async function ensureEmailTemplates() {
   for (const template of DEFAULT_EMAIL_TEMPLATES) {
-    const existing = await query<{ template_key: string }>("SELECT template_key FROM email_templates WHERE template_key = $1", [template.template_key]);
-    if (existing.rowCount === 0) {
-      await query(
-        "INSERT INTO email_templates (template_key, template_name, template_group, linked_status, subject, body, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        [template.template_key, template.template_name, template.template_group, template.linked_status, template.subject, template.body, new Date().toISOString()]
-      );
-    } else {
-      await query(
-        "UPDATE email_templates SET linked_status = $2 WHERE template_key = $1 AND COALESCE(linked_status, '') = ''",
-        [template.template_key, template.linked_status || defaultLinkedStatusForTemplateKey(template.template_key)]
-      ).catch(() => {});
-    }
+    await query(
+      `INSERT INTO email_templates (template_key, template_name, template_group, linked_status, subject, body, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (template_key)
+       DO UPDATE SET template_name = EXCLUDED.template_name,
+                     template_group = EXCLUDED.template_group,
+                     linked_status = EXCLUDED.linked_status,
+                     subject = EXCLUDED.subject,
+                     body = EXCLUDED.body,
+                     updated_at = EXCLUDED.updated_at`,
+      [template.template_key, template.template_name, template.template_group, template.linked_status, template.subject, template.body, new Date().toISOString()]
+    );
   }
 }
 
@@ -772,7 +760,7 @@ async function sendApplicationStatusEmail(payload: {
     : "";
 
   const html = buildWmsuEmailShell({
-    title: `Application Status Update: ${payload.status}`,
+    title: subject,
     subtitle: `${greeting}, ${payload.applicantName}. This is an official update from the WMSU Human Resource Management Office regarding your application for ${payload.jobTitle}.`,
     badgeText: payload.status,
     summaryRows: [
