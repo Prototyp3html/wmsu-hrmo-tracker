@@ -14,7 +14,7 @@ import { PDFParse } from "pdf-parse";
 import nodemailer from "nodemailer";
 import { createHash, randomBytes } from "node:crypto";
 import { initDb, query, getArchiveDuration, setArchiveDuration } from "./db.js";
-import { ensureDepartments, ensureSampleApplicants, ensureTestAccounts, seedIfEmpty } from "./seed.js";
+import { ensureDepartments, ensurePositionTitles, ensureSampleApplicants, ensureTestAccounts, seedIfEmpty } from "./seed.js";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
@@ -220,6 +220,7 @@ function mapApplicant(row: any) {
     weight: row.weight ?? "",
     bloodType: row.blood_type ?? "",
     gsisIdNo: row.gsis_id_no ?? "",
+    umidIdNo: row.umid_id_no ?? "",
     philsysNo: row.philsys_no ?? "",
     pagibigIdNo: row.pagibig_id_no ?? "",
     philhealthNo: row.philhealth_no ?? "",
@@ -2434,6 +2435,7 @@ app.post("/api/applicants", requireAuth, asyncHandler(async (req: AuthedRequest,
   const weight = String(body.weight ?? "");
   const bloodType = String(body.bloodType ?? "");
   const gsisIdNo = String(body.gsisIdNo ?? "");
+  const umidIdNo = String(body.umidIdNo ?? "");
   const philsysNo = String(body.philsysNo ?? "");
   const pagibigIdNo = String(body.pagibigIdNo ?? "");
   const philhealthNo = String(body.philhealthNo ?? "");
@@ -2472,14 +2474,14 @@ app.post("/api/applicants", requireAuth, asyncHandler(async (req: AuthedRequest,
     `INSERT INTO applicants (
       id, full_name, contact_number, telephone_number, email, address, permanent_address,
       date_of_birth, place_of_birth, sex, civil_status, citizenship, height, weight, blood_type,
-      gsis_id_no, philsys_no, pagibig_id_no, philhealth_no, citizenship_details, sss_no, tin_no, agency_employee_no,
+      gsis_id_no, umid_id_no, philsys_no, pagibig_id_no, philhealth_no, citizenship_details, sss_no, tin_no, agency_employee_no,
       spouse_name, spouse_surname, spouse_first_name, spouse_middle_name, spouse_name_extension, spouse_occupation,
       spouse_employer_business_name, spouse_business_address, spouse_telephone_no, children_info,
       father_name, father_surname, father_first_name, father_middle_name, father_name_extension,
       mother_name, mother_surname, mother_first_name, mother_middle_name,
       civil_service_eligibility, voluntary_work, trainings, other_info, references_info,
       educational_background, work_experience
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49) 
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50) 
     `,
     [
       applicantId,
@@ -2498,6 +2500,7 @@ app.post("/api/applicants", requireAuth, asyncHandler(async (req: AuthedRequest,
       weight,
       bloodType,
       gsisIdNo,
+      umidIdNo,
       philsysNo,
       pagibigIdNo,
       philhealthNo,
@@ -2543,13 +2546,13 @@ app.put("/api/applicants/:id", requireAuth, asyncHandler(async (req: AuthedReque
     `UPDATE applicants SET
       full_name=$2, contact_number=$3, telephone_number=$4, email=$5, address=$6, permanent_address=$7,
       date_of_birth=$8, place_of_birth=$9, sex=$10, civil_status=$11, citizenship=$12, height=$13, weight=$14, blood_type=$15,
-      gsis_id_no=$16, philsys_no=$17, pagibig_id_no=$18, philhealth_no=$19, citizenship_details=$20, sss_no=$21, tin_no=$22, agency_employee_no=$23,
-      spouse_name=$24, spouse_surname=$25, spouse_first_name=$26, spouse_middle_name=$27, spouse_name_extension=$28, spouse_occupation=$29,
-      spouse_employer_business_name=$30, spouse_business_address=$31, spouse_telephone_no=$32, children_info=$33,
-      father_name=$34, father_surname=$35, father_first_name=$36, father_middle_name=$37, father_name_extension=$38,
-      mother_name=$39, mother_surname=$40, mother_first_name=$41, mother_middle_name=$42,
-      civil_service_eligibility=$43, voluntary_work=$44, trainings=$45, other_info=$46, references_info=$47,
-      educational_background=$48, work_experience=$49
+      gsis_id_no=$16, umid_id_no=$17, philsys_no=$18, pagibig_id_no=$19, philhealth_no=$20, citizenship_details=$21, sss_no=$22, tin_no=$23, agency_employee_no=$24,
+      spouse_name=$25, spouse_surname=$26, spouse_first_name=$27, spouse_middle_name=$28, spouse_name_extension=$29, spouse_occupation=$30,
+      spouse_employer_business_name=$31, spouse_business_address=$32, spouse_telephone_no=$33, children_info=$34,
+      father_name=$35, father_surname=$36, father_first_name=$37, father_middle_name=$38, father_name_extension=$39,
+      mother_name=$40, mother_surname=$41, mother_first_name=$42, mother_middle_name=$43,
+      civil_service_eligibility=$44, voluntary_work=$45, trainings=$46, other_info=$47, references_info=$48,
+      educational_background=$49, work_experience=$50
     WHERE id=$1 RETURNING *`,
     [
       req.params.id,
@@ -2568,6 +2571,7 @@ app.put("/api/applicants/:id", requireAuth, asyncHandler(async (req: AuthedReque
       String(b.weight ?? ""),
       String(b.bloodType ?? ""),
       String(b.gsisIdNo ?? ""),
+      String(b.umidIdNo ?? ""),
       String(b.philsysNo ?? ""),
       String(b.pagibigIdNo ?? ""),
       String(b.philhealthNo ?? ""),
@@ -3525,8 +3529,9 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 async function start() {
   await initDb();
-  // await seedIfEmpty(); // All sample data has been removed
+  await seedIfEmpty();
   await ensureDepartments();
+  await ensurePositionTitles();
   await ensureTestAccounts();
   await ensureSampleApplicants();
   await ensureEmailTemplates();

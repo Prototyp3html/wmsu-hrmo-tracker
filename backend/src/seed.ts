@@ -25,6 +25,11 @@ type SeedJobVacancy = {
   status: string;
 };
 
+type SeedPositionTitle = {
+  id: string;
+  title: string;
+};
+
 type SeedApplicant = {
   id: string;
   fullName: string;
@@ -69,6 +74,24 @@ const users: SeedUser[] = [];
 const TEST_ACCOUNT_PASSWORD = "password123";
 
 const jobVacancies: SeedJobVacancy[] = [];
+
+const positionTitles: SeedPositionTitle[] = [
+  { id: randomUUID(), title: "Attorney IV" },
+  { id: randomUUID(), title: "Internal Auditor I" },
+  { id: randomUUID(), title: "Instructor III" },
+  { id: randomUUID(), title: "Information Technology Officer I Repost" },
+  { id: randomUUID(), title: "Information Officer I" },
+  { id: randomUUID(), title: "Administrative Aide VI (Clerk III)" },
+  { id: randomUUID(), title: "Project Development Officer I" },
+  { id: randomUUID(), title: "Administrative Assistant III (Senior Bookkeeper)" },
+  { id: randomUUID(), title: "Administrative Assistant III" },
+  { id: randomUUID(), title: "SUC Vice President" },
+  { id: randomUUID(), title: "Board Secretary V" },
+  { id: randomUUID(), title: "Chief Administrative Officer" },
+  { id: randomUUID(), title: "Administrative Aide VI" },
+  { id: randomUUID(), title: "Administrative Assistant II" },
+  { id: randomUUID(), title: "Administrative Officer I" }
+];
 
 const applicants: SeedApplicant[] = [
   {
@@ -147,6 +170,13 @@ export async function seedIfEmpty() {
     );
   }
 
+  for (const positionTitle of positionTitles) {
+    await query(
+      "INSERT INTO position_titles (id, title) VALUES ($1, $2)",
+      [positionTitle.id, positionTitle.title]
+    );
+  }
+
   for (const vacancy of jobVacancies) {
     await query(
       "INSERT INTO job_vacancies (id, position_title, department_id, salary_grade, qualifications, posting_date, closing_date, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
@@ -218,6 +248,22 @@ export async function seedIfEmpty() {
         evaluation.evaluatedAt
       ]
     );
+  }
+}
+
+export async function ensurePositionTitles() {
+  for (const positionTitle of positionTitles) {
+    const existing = await query<{ id: string }>(
+      "SELECT id FROM position_titles WHERE LOWER(title) = LOWER($1) LIMIT 1",
+      [positionTitle.title]
+    );
+
+    if (existing.rowCount === 0) {
+      await query(
+        "INSERT INTO position_titles (id, title) VALUES ($1, $2)",
+        [positionTitle.id, positionTitle.title]
+      );
+    }
   }
 }
 

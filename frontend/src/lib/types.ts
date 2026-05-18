@@ -59,7 +59,9 @@ export interface Applicant {
   height: string;
   weight: string;
   bloodType: string;
+  umidIdNo: string;
   gsisIdNo: string;
+  umidIdNo: string;
   philsysNo: string;
   pagibigIdNo: string;
   philhealthNo: string;
@@ -188,6 +190,7 @@ export interface ParsedApplicantDraft {
   weight: string;
   bloodType: string;
   gsisIdNo: string;
+  umidIdNo: string;
   philsysNo: string;
   pagibigIdNo: string;
   philhealthNo: string;

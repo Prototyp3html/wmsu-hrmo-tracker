@@ -10,7 +10,8 @@ import type {
   JobVacancy,
   StatusHistory,
   User,
-  ParsedApplicantDraft
+  ParsedApplicantDraft,
+  Panelist
 } from "./types";
 
 const API_BASE = (() => {
