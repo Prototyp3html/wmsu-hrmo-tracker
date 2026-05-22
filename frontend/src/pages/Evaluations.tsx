@@ -43,13 +43,69 @@ const SECOND_LEVEL_CRITERIA = {
   serviceOrientation: { name: "Service Orientation", max: 100 }
 };
 
+const TEACHING_GROUPS = [
+  {
+    title: "A. PEDAGOGY",
+    weight: 30,
+    items: {
+      visualAids: { name: "Appropriate visual aids used", max: 5, weight: 5 },
+      questioning: { name: "Manifest skills and techniques in questioning", max: 5, weight: 5 },
+      variedStrategies: { name: "Varied teaching strategies used", max: 5, weight: 10 },
+      congruency: { name: "Congruency of teaching objectives with the learning task", max: 5, weight: 10 }
+    }
+  },
+  {
+    title: "B. MASTERY OF THE SUBJECT MATTER",
+    weight: 30,
+    items: {
+      fluency: { name: "Shows fluency and adequate knowledge of the concept", max: 5, weight: 15 },
+      connection: { name: "Establish connection from one concept to the next", max: 5, weight: 5 },
+      presentation: { name: "Organize presentation of the lesson", max: 5, weight: 5 },
+      explanation: { name: "Explanation of the concept is explicit and clear", max: 5, weight: 5 }
+    }
+  },
+  {
+    title: "C. CLASSROOM MANAGEMENT",
+    weight: 20,
+    items: {
+      manageTasks: { name: "Manage students' academic task and promote appropriate use of consequences", max: 5, weight: 5 },
+      encourageBehavior: { name: "Encourage appropriate behavior among students", max: 5, weight: 5 },
+      teachWithinTime: { name: "Teach within the time allotted as required", max: 5, weight: 5 },
+      positiveAtmosphere: { name: "Create positive learning atmosphere with mutual respect", max: 5, weight: 5 }
+    }
+  },
+  {
+    title: "D. PERSONAL QUALITIES",
+    weight: 20,
+    items: {
+      appropriatelyDressed: { name: "Appropriately dressed", max: 5, weight: 5 },
+      selfConfidence: { name: "Has an unwavering self-confidence", max: 5, weight: 5 },
+      englishCommand: { name: "Has a good command of the English language", max: 5, weight: 5 },
+      modulatedVoice: { name: "Has a modulated voice", max: 5, weight: 5 }
+    }
+  }
+];
+
 // ─── Helpers (defined once, outside any component) ───────────────────────────
 
 function calculateAverages(
   panelists: FormPanelist[],
-  criteria: typeof FIRST_LEVEL_CRITERIA | typeof SECOND_LEVEL_CRITERIA
+  criteria: Record<string, { name: string; max: number }> | Array<{ title: string; weight: number; items: Record<string, { name: string; max: number; weight: number }>}>
 ) {
   const averages: Record<string, number> = {};
+
+  if (Array.isArray(criteria)) {
+    criteria.forEach((group) => {
+      Object.keys(group.items).forEach((key) => {
+        const scores = panelists.map((p) => p.scores[key]).filter((s): s is number => s !== undefined);
+        if (scores.length > 0) {
+          averages[`${key}Avg`] = scores.reduce((a, b) => a + b, 0) / scores.length;
+        }
+      });
+    });
+    return averages;
+  }
+
   Object.keys(criteria).forEach((criterionKey) => {
     const scores = panelists
       .map((p) => p.scores[criterionKey])
@@ -63,9 +119,28 @@ function calculateAverages(
 
 function calculateTotalScore(
   panelists: FormPanelist[],
-  criteria: typeof FIRST_LEVEL_CRITERIA | typeof SECOND_LEVEL_CRITERIA
+  criteria: Record<string, { name: string; max: number }> | Array<{ title: string; weight: number; items: Record<string, { name: string; max: number; weight: number }>}>
 ) {
-  const averages = calculateAverages(panelists, criteria);
+  if (Array.isArray(criteria)) {
+    // Weighted calculation: each item contributes (avg / max) * item.weight
+    let totalWeight = 0;
+    let weightedSum = 0;
+    criteria.forEach((group) => {
+      Object.entries(group.items).forEach(([key, item]) => {
+        const scores = panelists.map((p) => p.scores[key]).filter((s): s is number => s !== undefined);
+        if (scores.length === 0) return;
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const normalized = avg / item.max; // 0..1
+        weightedSum += normalized * item.weight;
+        totalWeight += item.weight;
+      });
+    });
+    if (totalWeight === 0) return 0;
+    // Return a 0..100 percentage score
+    return (weightedSum / totalWeight) * 100;
+  }
+
+  const averages = calculateAverages(panelists, criteria as Record<string, { name: string; max: number }>);
   const avgValues = Object.values(averages);
   if (avgValues.length === 0) return 0;
   return avgValues.reduce((a, b) => a + b, 0) / avgValues.length;
@@ -107,12 +182,16 @@ function getAverageScore(totalScore: number, level: "first_level" | "second_leve
 interface EvalFormProps {
   panelists: FormPanelist[];
   setPanelists: (p: FormPanelist[]) => void;
-  criteria?: typeof FIRST_LEVEL_CRITERIA | typeof SECOND_LEVEL_CRITERIA;
+  criteria?:
+    | Record<string, { name: string; max: number }>
+    | Array<{ title: string; weight: number; items: Record<string, { name: string; max: number; weight: number }>}>
+    ;
   level: "first_level" | "second_level";
 }
 
 function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
   const activeCriteria = criteria ?? (level === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA);
+  const isGrouped = Array.isArray(activeCriteria);
   const [showCountSelector, setShowCountSelector] = useState(panelists.length === 1 && !panelists[0].name);
 
   const handleSetPanelistCount = (count: number) => {
@@ -142,7 +221,7 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
       <div className="border rounded-lg px-4 py-3 flex gap-2.5 items-center bg-muted/40 border-border/60">
         <Info className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
         <p className="text-sm font-medium text-foreground">
-          {isFirst ? "First" : "Second"} Level Administrative Position Assessment
+          {isGrouped ? "Teaching Demonstration Assessment" : (isFirst ? "First" : "Second") + " Level Administrative Position Assessment"}
         </p>
       </div>
 
@@ -226,39 +305,82 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
             </div>
 
             {/* Criteria for this panelist */}
-            <div className="grid grid-cols-2 gap-3 mt-3 p-3 bg-muted/40 rounded-lg border border-border/30">
-              {Object.entries(activeCriteria).map(([key, data]) => (
-                <div key={key} className="space-y-1">
-                  <Label className="text-xs flex justify-between">
-                    <span>{data.name}</span>
-                    <span className="text-muted-foreground">/{data.max}</span>
-                  </Label>
-                  <input
-                    type="number"
-                    autoComplete="off"
-                    spellCheck="false"
-                    min={0}
-                    max={data.max}
-                    placeholder={`0-${data.max}`}
-                    value={panelist.scores[key] ?? ""}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    onChange={(e) => {
-                      let val = e.target.value ? Number(e.target.value) : undefined;
-                      if (val !== undefined) {
-                        if (val < 0) val = 0;
-                        if (val > data.max) val = data.max;
-                      }
-                      const updated = panelists.map((p, i) =>
-                        i === pIdx
-                          ? { ...p, scores: { ...p.scores, [key]: val } }
-                          : p
-                      );
-                      setPanelists(updated);
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
+            {isGrouped ? (
+              <div className="space-y-3 mt-3">
+                {((activeCriteria as any) as Array<any>).map((group, gIdx) => (
+                  <div key={gIdx} className="p-3 bg-muted/40 rounded-lg border border-border/30">
+                    <div className="text-sm font-semibold mb-2">{group.title} <span className="text-xs text-muted-foreground">({group.weight}%)</span></div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {Object.entries(group.items).map(([key, data]) => (
+                        <div key={key} className="space-y-1">
+                          <Label className="text-xs flex justify-between">
+                            <span>{data.name}</span>
+                            <span className="text-muted-foreground">/{data.max}</span>
+                          </Label>
+                          <input
+                            type="number"
+                            autoComplete="off"
+                            spellCheck="false"
+                            min={0}
+                            max={data.max}
+                            placeholder={`0-${data.max}`}
+                            value={panelist.scores[key] ?? ""}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            onChange={(e) => {
+                              let val = e.target.value ? Number(e.target.value) : undefined;
+                              if (val !== undefined) {
+                                if (val < 0) val = 0;
+                                if (val > data.max) val = data.max;
+                              }
+                              const updated = panelists.map((p, i) =>
+                                i === pIdx
+                                  ? { ...p, scores: { ...p.scores, [key]: val } }
+                                  : p
+                              );
+                              setPanelists(updated);
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 mt-3 p-3 bg-muted/40 rounded-lg border border-border/30">
+                {Object.entries(activeCriteria as Record<string, any>).map(([key, data]) => (
+                  <div key={key} className="space-y-1">
+                    <Label className="text-xs flex justify-between">
+                      <span>{data.name}</span>
+                      <span className="text-muted-foreground">/{data.max}</span>
+                    </Label>
+                    <input
+                      type="number"
+                      autoComplete="off"
+                      spellCheck="false"
+                      min={0}
+                      max={data.max}
+                      placeholder={`0-${data.max}`}
+                      value={panelist.scores[key] ?? ""}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      onChange={(e) => {
+                        let val = e.target.value ? Number(e.target.value) : undefined;
+                        if (val !== undefined) {
+                          if (val < 0) val = 0;
+                          if (val > data.max) val = data.max;
+                        }
+                        const updated = panelists.map((p, i) =>
+                          i === pIdx
+                            ? { ...p, scores: { ...p.scores, [key]: val } }
+                            : p
+                        );
+                        setPanelists(updated);
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         </div>
@@ -310,6 +432,7 @@ export default function Evaluations() {
   ]);
   const [formRemarks, setFormRemarks] = useState("");
   const [formApplicationId, setFormApplicationId] = useState("");
+  const [formEvaluationType, setFormEvaluationType] = useState<"administrative" | "teaching">("administrative");
 
   // Edit form state for panelists
   const [editPanelists, setEditPanelists] = useState<FormPanelist[]>([]);
@@ -387,6 +510,19 @@ export default function Evaluations() {
 
   const selectedAppVacancy = applications.find((a) => a.id === formApplicationId);
   const vacancyLevel = selectedAppVacancy ? getVacancyLevel(selectedAppVacancy.vacancyId) : "first_level";
+  const selectedVacancy = selectedAppVacancy ? jobVacancies.find((j) => j.id === selectedAppVacancy.vacancyId) : null;
+  const vacancyTitle = (selectedVacancy?.positionTitle ?? "").trim();
+  const isTeachingRole = /teacher|instructor|lecturer|professor|tutor/i.test(vacancyTitle);
+
+  // Auto-select teaching evaluation type when a teaching role is chosen.
+  useEffect(() => {
+    if (!formApplicationId) return;
+    if (isTeachingRole) {
+      setFormEvaluationType("teaching");
+    } else {
+      setFormEvaluationType("administrative");
+    }
+  }, [formApplicationId, isTeachingRole]);
 
   const editingEvaluation = evaluations.find((ev) => ev.id === editingEvaluationId) ?? null;
   const editingApplication = applications.find((app) => app.id === editingEvaluation?.applicationId) ?? null;
@@ -433,12 +569,15 @@ export default function Evaluations() {
       .map((evaluation) => {
         const application = applications.find((app) => app.id === evaluation.applicationId);
         const vacancy = application ? jobVacancies.find((job) => job.id === application.vacancyId) : null;
+        const vacancyTitle = vacancy?.positionTitle ?? "";
+        const isTeachingEval = /teacher|instructor|lecturer|professor|tutor/i.test(vacancyTitle);
         return {
           ...evaluation,
           applicantName: application ? getApplicantName(application.applicantId) : "Unknown",
           positionTitle: vacancy?.positionTitle ?? "Unknown position",
           vacancyId: vacancy?.id ?? "",
-          displayLevel: (vacancy as any)?.positionLevel ?? evaluation.positionLevel
+          displayLevel: (vacancy as any)?.positionLevel ?? evaluation.positionLevel,
+          isTeaching: isTeachingEval
         };
       })
       .sort((a, b) => b.totalScore - a.totalScore);
@@ -675,22 +814,30 @@ export default function Evaluations() {
                   return;
                 }
 
-                const criteria = vacancyLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA;
-                const averages = calculateAverages(formPanelists, criteria);
-                const totalScore = calculateTotalScore(formPanelists, criteria);
+                const criteria = formEvaluationType === "teaching" ? TEACHING_GROUPS : (vacancyLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA);
+                const averages = calculateAverages(formPanelists, criteria as any);
+                const totalScore = calculateTotalScore(formPanelists, criteria as any);
 
-                createMutation.mutate({
+                // Build payload
+                const basePayload: any = {
                   applicationId: formApplicationId,
                   positionLevel: vacancyLevel,
-                  panelists: formPanelists.map((p) => ({
-                    id: p.id,
-                    name: p.name,
-                    scores: p.scores
-                  })),
-                  ...mapAveragesToScorePayload(averages, vacancyLevel),
+                  panelists: formPanelists.map((p) => ({ id: p.id, name: p.name, scores: p.scores })),
                   totalScore,
                   remarks: formRemarks
-                } as any);
+                };
+
+                if (formEvaluationType === "teaching") {
+                  // For teaching evaluations, mark as second level so backend computes total from
+                  // second-level fields, and place the computed weighted total into
+                  // `oralCommunication` so the server records it as the second-level total.
+                  basePayload.positionLevel = "second_level";
+                  basePayload.oralCommunication = totalScore;
+                } else {
+                  Object.assign(basePayload, mapAveragesToScorePayload(averages as any, vacancyLevel));
+                }
+
+                createMutation.mutate(basePayload as any);
               }}>
                 <div className="space-y-2">
                   <Label>Application</Label>
@@ -708,13 +855,29 @@ export default function Evaluations() {
                   </Select>
                 </div>
 
-                {formApplicationId && (
-                  <EvalForm
-                    panelists={formPanelists}
-                    setPanelists={setFormPanelists}
-                    level={vacancyLevel as "first_level" | "second_level"}
-                  />
-                )}
+                  {formApplicationId && (
+                    <>
+                      {isTeachingRole && (
+                        <div className="space-y-2">
+                          <Label className="text-xs font-medium text-muted-foreground">Evaluation Type</Label>
+                          <Select value={formEvaluationType} onValueChange={(v) => setFormEvaluationType(v as any)}>
+                            <SelectTrigger><SelectValue placeholder="Select evaluation type" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="administrative">Administrative (use vacancy level)</SelectItem>
+                              <SelectItem value="teaching">Teaching Demonstration / Interview</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      <EvalForm
+                        panelists={formPanelists}
+                        setPanelists={setFormPanelists}
+                        criteria={formEvaluationType === "teaching" ? TEACHING_GROUPS : undefined}
+                        level={vacancyLevel as "first_level" | "second_level"}
+                      />
+                    </>
+                  )}
 
                 <div className="space-y-2">
                   <Label>Remarks</Label>
@@ -759,30 +922,42 @@ export default function Evaluations() {
                 return;
               }
 
-              const criteria = editingEvaluation?.positionLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA;
-              const averages = calculateAverages(editPanelists, criteria);
-              const totalScore = calculateTotalScore(editPanelists, criteria);
+              // Determine if this edit corresponds to a teaching evaluation by looking up the vacancy title
+              const editingApp = editingApplication;
+              const vacTitle = editingApp ? (jobVacancies.find((j) => j.id === editingApp.vacancyId)?.positionTitle ?? "") : "";
+              const isEditingTeaching = /teacher|instructor|lecturer|professor|tutor/i.test(vacTitle);
 
-              updateMutation.mutate({
-                id: editingEvaluationId,
-                payload: {
-                  positionLevel: editingEvaluation?.positionLevel,
-                  panelists: editPanelists.map((p) => ({
-                    id: p.id,
-                    name: p.name,
-                    scores: p.scores
-                  })),
-                  ...mapAveragesToScorePayload(averages, editingEvaluation?.positionLevel ?? "first_level"),
-                  totalScore,
-                  remarks: editRemarks
-                } as any
-              });
+              const criteria = isEditingTeaching ? TEACHING_GROUPS : (editingEvaluation?.positionLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA);
+              const averages = calculateAverages(editPanelists, criteria as any);
+              const totalScore = calculateTotalScore(editPanelists, criteria as any);
+
+              const payload: any = {
+                positionLevel: editingEvaluation?.positionLevel,
+                panelists: editPanelists.map((p) => ({ id: p.id, name: p.name, scores: p.scores })),
+                totalScore,
+                remarks: editRemarks
+              };
+
+              if (isEditingTeaching) {
+                // Store as second-level numeric so backend computes totals correctly
+                payload.positionLevel = "second_level";
+                payload.oralCommunication = totalScore;
+              } else {
+                Object.assign(payload, mapAveragesToScorePayload(averages, editingEvaluation?.positionLevel ?? "first_level"));
+              }
+
+              updateMutation.mutate({ id: editingEvaluationId, payload } as any);
             }}
           >
             {editingEvaluation && (
               <EvalForm
                 panelists={editPanelists}
                 setPanelists={setEditPanelists}
+                criteria={(() => {
+                  const editingApp = editingApplication;
+                  const vacTitle = editingApp ? (jobVacancies.find((j) => j.id === editingApp.vacancyId)?.positionTitle ?? "") : "";
+                  return /teacher|instructor|lecturer|professor|tutor/i.test(vacTitle) ? TEACHING_GROUPS : undefined;
+                })()}
                 level={editingEvaluation.positionLevel as "first_level" | "second_level"}
               />
             )}
@@ -898,7 +1073,7 @@ export default function Evaluations() {
                       {ev.panelists?.length ?? 0} panelist{(ev.panelists?.length ?? 0) !== 1 ? "s" : ""}
                     </td>
                     <td className="px-4 py-3 text-center font-bold text-primary text-base">
-                      {getAverageScore(ev.totalScore, ev.displayLevel).toFixed(1)}
+                      {ev.isTeaching ? Number(ev.totalScore ?? 0).toFixed(1) : getAverageScore(ev.totalScore, ev.displayLevel).toFixed(1)}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{ev.remarks}</td>
                     <td className="px-4 py-3 text-right">

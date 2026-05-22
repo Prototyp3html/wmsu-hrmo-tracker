@@ -1,26 +1,110 @@
 import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useQuery } from "@tanstack/react-query";
-import { fetchApplicants, fetchApplications, fetchJobs, fetchEvaluations } from "@/lib/api";
-import { getStatusColor, allStatuses } from "@/lib/status";
-import { FileText, Printer, Download, Eye } from "lucide-react";
+import { fetchApplicants, fetchApplications, fetchDepartments, fetchJobs } from "@/lib/api";
+import { allStatuses, getStatusColor } from "@/lib/status";
+import { Download, Eye, Printer, Search, SlidersHorizontal, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-type ReportType = "per-position" | "status" | "hired" | "rejected" | "summary";
+type SortOption =
+  | "date-desc"
+  | "date-asc"
+  | "applicant-asc"
+  | "applicant-desc"
+  | "position-asc"
+  | "position-desc"
+  | "department-asc"
+  | "department-desc"
+  | "status-asc"
+  | "status-desc";
+
+type DatePreset = "all" | "7d" | "30d" | "90d" | "custom";
+type CategoryFilter = "all" | "first_level" | "second_level";
+type PrintScope = "all" | "vacancy" | "selected";
+
+type ApplicationRow = {
+  id: string;
+  applicantId: string;
+  applicantName: string;
+  applicantEmail: string;
+  vacancyId: string;
+  vacancyTitle: string;
+  departmentId: string;
+  departmentName: string;
+  status: string;
+  dateApplied: string;
+  dateAppliedValue: number | null;
+  remarks: string;
+  categoryValue: Exclude<CategoryFilter, "all">;
+  categoryLabel: string;
+};
+
+const categoryLabelMap: Record<Exclude<CategoryFilter, "all">, string> = {
+  first_level: "First Level",
+  second_level: "Second Level"
+};
+
+const sortLabelMap: Record<SortOption, string> = {
+  "date-desc": "Newest first",
+  "date-asc": "Oldest first",
+  "applicant-asc": "Applicant A-Z",
+  "applicant-desc": "Applicant Z-A",
+  "position-asc": "Position A-Z",
+  "position-desc": "Position Z-A",
+  "department-asc": "Department A-Z",
+  "department-desc": "Department Z-A",
+  "status-asc": "Status A-Z",
+  "status-desc": "Status Z-A"
+};
+
+const datePresetLabelMap: Record<DatePreset, string> = {
+  all: "All dates",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "90d": "Last 90 days",
+  custom: "Custom range"
+};
+
+function toSafeDateValue(value: string): number | null {
+  const parsed = new Date(value);
+  const time = parsed.getTime();
+  return Number.isNaN(time) ? null : time;
+}
+
+function formatDisplayDate(value: string): string {
+  const time = toSafeDateValue(value);
+  if (time === null) {
+    return value || "—";
+  }
+  return new Date(time).toLocaleDateString();
+}
+
+function escapeCsv(value: string): string {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
 
 export default function Reports() {
   const { toast } = useToast();
-  const [reportType, setReportType] = useState<ReportType>("per-position");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [vacancyFilter, setVacancyFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
+  const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortBy, setSortBy] = useState<SortOption>("date-desc");
+  const [printScope, setPrintScope] = useState<PrintScope>("all");
+  const [printVacancyId, setPrintVacancyId] = useState("all");
+  const [selectedApplicationIds, setSelectedApplicationIds] = useState<string[]>([]);
+  const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [hiredPositionFilter, setHiredPositionFilter] = useState("all");
-  const [hiredSalaryGradeFilter, setHiredSalaryGradeFilter] = useState("all");
-  const [hiredPositionLevelFilter, setHiredPositionLevelFilter] = useState("all");
-  
+
   const { data: applications = [] } = useQuery({
     queryKey: ["applications"],
     queryFn: fetchApplications
@@ -33,133 +117,394 @@ export default function Reports() {
     queryKey: ["jobs"],
     queryFn: fetchJobs
   });
-  const { data: evaluations = [] } = useQuery({
-    queryKey: ["evaluations"],
-    queryFn: fetchEvaluations
+  const { data: departments = [] } = useQuery({
+    queryKey: ["departments"],
+    queryFn: fetchDepartments
   });
 
-  const getApplicantName = (id: string) =>
-    applicants.find((a) => a.id === id)?.fullName ?? "Unknown";
+  const applicantById = useMemo(() => new Map(applicants.map((applicant) => [applicant.id, applicant])), [applicants]);
+  const jobById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
+  const departmentById = useMemo(() => new Map(departments.map((department) => [department.id, department])), [departments]);
 
-  const getVacancyTitle = (id: string) =>
-    jobs.find((v) => v.id === id)?.positionTitle ?? "Unknown";
+  const applicationRows = useMemo<ApplicationRow[]>(() => {
+    return applications.map((application) => {
+      const applicant = applicantById.get(application.applicantId);
+      const job = jobById.get(application.vacancyId);
+      const department = job ? departmentById.get(job.departmentId) : undefined;
+      const categoryValue = job?.positionLevel === "second_level" ? "second_level" : "first_level";
 
-  const getVacancySalaryGrade = (id: string) =>
-    jobs.find((v) => v.id === id)?.salaryGrade ?? null;
+      return {
+        id: application.id,
+        applicantId: application.applicantId,
+        applicantName: applicant?.fullName ?? "Unknown applicant",
+        applicantEmail: applicant?.email ?? "—",
+        vacancyId: application.vacancyId,
+        vacancyTitle: job?.positionTitle ?? "Unknown position",
+        departmentId: job?.departmentId ?? "",
+        departmentName: department?.name ?? "Unknown department",
+        status: application.status,
+        dateApplied: application.dateApplied,
+        dateAppliedValue: toSafeDateValue(application.dateApplied),
+        remarks: application.remarks ?? "—",
+        categoryValue,
+        categoryLabel: categoryLabelMap[categoryValue]
+      };
+    });
+  }, [applications, applicantById, jobById, departmentById]);
 
-  const getVacancyPositionLevel = (id: string) => {
-    const level = jobs.find((v) => v.id === id)?.positionLevel;
-    if (level === "first_level") return "First Level";
-    if (level === "second_level") return "Second Level";
-    return "Unknown";
+  const vacancyOptions = useMemo(() => {
+    return jobs.slice().sort((a, b) => a.positionTitle.localeCompare(b.positionTitle));
+  }, [jobs]);
+
+  const departmentOptions = useMemo(() => {
+    return departments.slice().sort((a, b) => a.name.localeCompare(b.name));
+  }, [departments]);
+
+  const filteredApplications = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    const now = Date.now();
+    const fromDate = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
+    const toDate = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null;
+
+    const filtered = applicationRows.filter((row) => {
+      const matchesVacancy = vacancyFilter === "all" || row.vacancyId === vacancyFilter;
+      const matchesStatus = statusFilter === "all" || row.status === statusFilter;
+      const matchesDepartment = departmentFilter === "all" || row.departmentId === departmentFilter;
+      const matchesCategory = categoryFilter === "all" || row.categoryValue === categoryFilter;
+
+      let matchesDate = true;
+      if (datePreset !== "all") {
+        if (row.dateAppliedValue === null) {
+          matchesDate = false;
+        } else if (datePreset === "7d") {
+          matchesDate = row.dateAppliedValue >= now - 7 * 24 * 60 * 60 * 1000;
+        } else if (datePreset === "30d") {
+          matchesDate = row.dateAppliedValue >= now - 30 * 24 * 60 * 60 * 1000;
+        } else if (datePreset === "90d") {
+          matchesDate = row.dateAppliedValue >= now - 90 * 24 * 60 * 60 * 1000;
+        } else if (datePreset === "custom") {
+          if (fromDate !== null) {
+            matchesDate = row.dateAppliedValue >= fromDate;
+          }
+          if (matchesDate && toDate !== null) {
+            matchesDate = row.dateAppliedValue <= toDate;
+          }
+        }
+      }
+
+      const searchableText = [
+        row.applicantName,
+        row.applicantEmail,
+        row.vacancyTitle,
+        row.departmentName,
+        row.status,
+        row.categoryLabel,
+        row.remarks,
+        row.dateApplied
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchesSearch = normalizedSearch === "" || searchableText.includes(normalizedSearch);
+
+      return matchesVacancy && matchesStatus && matchesDepartment && matchesCategory && matchesDate && matchesSearch;
+    });
+
+    return filtered.slice().sort((left, right) => {
+      const leftDate = left.dateAppliedValue ?? 0;
+      const rightDate = right.dateAppliedValue ?? 0;
+      const leftApplicant = left.applicantName.toLowerCase();
+      const rightApplicant = right.applicantName.toLowerCase();
+      const leftPosition = left.vacancyTitle.toLowerCase();
+      const rightPosition = right.vacancyTitle.toLowerCase();
+      const leftDepartment = left.departmentName.toLowerCase();
+      const rightDepartment = right.departmentName.toLowerCase();
+      const leftStatus = left.status.toLowerCase();
+      const rightStatus = right.status.toLowerCase();
+
+      switch (sortBy) {
+        case "date-asc":
+          return leftDate - rightDate;
+        case "date-desc":
+          return rightDate - leftDate;
+        case "applicant-asc":
+          return leftApplicant.localeCompare(rightApplicant);
+        case "applicant-desc":
+          return rightApplicant.localeCompare(leftApplicant);
+        case "position-asc":
+          return leftPosition.localeCompare(rightPosition);
+        case "position-desc":
+          return rightPosition.localeCompare(leftPosition);
+        case "department-asc":
+          return leftDepartment.localeCompare(rightDepartment);
+        case "department-desc":
+          return rightDepartment.localeCompare(leftDepartment);
+        case "status-asc":
+          return leftStatus.localeCompare(rightStatus);
+        case "status-desc":
+          return rightStatus.localeCompare(leftStatus);
+        default:
+          return rightDate - leftDate;
+      }
+    });
+  }, [applicationRows, categoryFilter, dateFrom, datePreset, dateTo, departmentFilter, searchTerm, sortBy, statusFilter, vacancyFilter]);
+
+  const selectedApplicationIdSet = useMemo(() => new Set(selectedApplicationIds), [selectedApplicationIds]);
+
+  const allVisibleSelected = filteredApplications.length > 0 && filteredApplications.every((row) => selectedApplicationIdSet.has(row.id));
+  const someVisibleSelected = filteredApplications.some((row) => selectedApplicationIdSet.has(row.id));
+
+  const selectedApplications = useMemo(() => {
+    return applicationRows.filter((row) => selectedApplicationIdSet.has(row.id));
+  }, [applicationRows, selectedApplicationIdSet]);
+
+  const printRows = useMemo(() => {
+    if (printScope === "selected") {
+      return selectedApplications;
+    }
+
+    if (printScope === "vacancy") {
+      const baseRows = filteredApplications;
+      return printVacancyId === "all"
+        ? baseRows
+        : baseRows.filter((row) => row.vacancyId === printVacancyId);
+    }
+
+    return filteredApplications;
+  }, [filteredApplications, printScope, printVacancyId, selectedApplications]);
+
+  const printScopeLabel = useMemo(() => {
+    if (printScope === "selected") return "Selected applications only";
+    if (printScope === "vacancy") {
+      return printVacancyId === "all"
+        ? "All applications"
+        : `Applications for ${vacancyOptions.find((job) => job.id === printVacancyId)?.positionTitle ?? "selected vacancy"}`;
+    }
+    return "All application records";
+  }, [printScope, printVacancyId, vacancyOptions]);
+
+  const selectedApplication = useMemo(() => {
+    if (!selectedApplicationId) {
+      return null;
+    }
+    return filteredApplications.find((row) => row.id === selectedApplicationId) ?? applicationRows.find((row) => row.id === selectedApplicationId) ?? null;
+  }, [applicationRows, filteredApplications, selectedApplicationId]);
+
+  const summaryStats = useMemo(() => {
+    const uniquePositions = new Set(filteredApplications.map((row) => row.vacancyId)).size;
+    const uniqueDepartments = new Set(filteredApplications.map((row) => row.departmentId).filter(Boolean)).size;
+    const hiredCount = filteredApplications.filter((row) => row.status === "Hired").length;
+    const rejectedCount = filteredApplications.filter((row) => row.status === "Rejected").length;
+    return {
+      matched: filteredApplications.length,
+      total: applicationRows.length,
+      uniquePositions,
+      uniqueDepartments,
+      hiredCount,
+      rejectedCount
+    };
+  }, [applicationRows.length, filteredApplications]);
+
+  const statusBreakdown = useMemo(() => {
+    const total = filteredApplications.length || 1;
+    return allStatuses.map((status) => {
+      const count = filteredApplications.filter((row) => row.status === status).length;
+      return {
+        status,
+        count,
+        percentage: Math.round((count / total) * 100)
+      };
+    });
+  }, [filteredApplications]);
+
+  const buildExportRows = () => {
+    return filteredApplications.map((row) => [
+      row.applicantName,
+      row.applicantEmail,
+      row.vacancyTitle,
+      row.departmentName,
+      row.categoryLabel,
+      row.status,
+      formatDisplayDate(row.dateApplied),
+      row.remarks
+    ]);
   };
 
-  const hired = applications.filter((a) => a.status === "Hired");
-  const rejected = applications.filter((a) => a.status === "Rejected");
-
-  const hiredPositionOptions = useMemo(() => {
-    return Array.from(new Set(hired.map((app) => getVacancyTitle(app.vacancyId)).filter((title) => title !== "Unknown"))).sort((a, b) => a.localeCompare(b));
-  }, [hired, jobs]);
-
-  const hiredSalaryGradeOptions = useMemo(() => {
-    return Array.from(new Set(
-      hired
-        .map((app) => getVacancySalaryGrade(app.vacancyId))
-        .filter((grade): grade is number => grade !== null)
-    ))
-      .sort((a, b) => a - b)
-      .map((grade) => String(grade));
-  }, [hired, jobs]);
-
-  const hiredPositionLevelOptions = useMemo(() => {
-    return Array.from(new Set(
-      hired.map((app) => getVacancyPositionLevel(app.vacancyId)).filter((level) => level !== "Unknown")
-    ));
-  }, [hired, jobs]);
-
-  const hiredFiltered = useMemo(() => {
-    return hired.filter((app) => {
-      const position = getVacancyTitle(app.vacancyId);
-      const salaryGrade = getVacancySalaryGrade(app.vacancyId);
-      const positionLevel = getVacancyPositionLevel(app.vacancyId);
-
-      const matchPosition = hiredPositionFilter === "all" || position === hiredPositionFilter;
-      const matchSalaryGrade = hiredSalaryGradeFilter === "all" || String(salaryGrade ?? "") === hiredSalaryGradeFilter;
-      const matchPositionLevel = hiredPositionLevelFilter === "all" || positionLevel === hiredPositionLevelFilter;
-
-      return matchPosition && matchSalaryGrade && matchPositionLevel;
-    });
-  }, [hired, hiredPositionFilter, hiredSalaryGradeFilter, hiredPositionLevelFilter, jobs]);
-
-  const positionGroups = jobs.map((v) => ({
-    vacancy: v,
-    apps: applications.filter((a) => a.vacancyId === v.id),
-  }));
-
-  // Status distribution statistics
-  const statusStats = useMemo(() => {
-    const total = applications.length || 1;
-    return allStatuses.map((status) => {
-      const count = applications.filter((a) => a.status === status).length;
-      const percentage = Math.round((count / total) * 100);
-      return { status, count, percentage };
-    });
-  }, [applications]);
-
-  // Position-level statistics
-  const positionLevelStats = useMemo(() => {
-    const firstLevel = applications.filter((app) => {
-      const job = jobs.find((j) => j.id === app.vacancyId);
-      return (job as any)?.positionLevel === "first_level";
-    });
-    const secondLevel = applications.filter((app) => {
-      const job = jobs.find((j) => j.id === app.vacancyId);
-      return (job as any)?.positionLevel === "second_level";
-    });
-    const total = applications.length || 1;
-    
-    return [
-      {
-        level: "First Level",
-        count: firstLevel.length,
-        percentage: Math.round((firstLevel.length / total) * 100),
-        hired: firstLevel.filter((a) => a.status === "Hired").length,
-        rejected: firstLevel.filter((a) => a.status === "Rejected").length
-      },
-      {
-        level: "Second Level",
-        count: secondLevel.length,
-        percentage: Math.round((secondLevel.length / total) * 100),
-        hired: secondLevel.filter((a) => a.status === "Hired").length,
-        rejected: secondLevel.filter((a) => a.status === "Rejected").length
+  const handleSelectVisibleApplications = (checked: boolean) => {
+    setSelectedApplicationIds((current) => {
+      if (!checked) {
+        return current.filter((id) => !filteredApplications.some((row) => row.id === id));
       }
-    ];
-  }, [applications, jobs]);
-
-  const monthlySummary = useMemo(() => {
-    const summaryMap = new Map<string, { month: string; applications: number; hired: number; rejected: number }>();
-    applications.forEach((app) => {
-      const date = new Date(app.dateApplied);
-      if (Number.isNaN(date.getTime())) return;
-      const month = date.toLocaleString("en-US", { month: "long", year: "numeric" });
-      const entry = summaryMap.get(month) ?? { month, applications: 0, hired: 0, rejected: 0 };
-      entry.applications += 1;
-      if (app.status === "Hired") entry.hired += 1;
-      if (app.status === "Rejected") entry.rejected += 1;
-      summaryMap.set(month, entry);
+      const visibleIds = filteredApplications.map((row) => row.id);
+      return Array.from(new Set([...current, ...visibleIds]));
     });
-    return Array.from(summaryMap.values());
-  }, [applications]);
+  };
+
+  const handleToggleApplicationSelection = (applicationId: string, checked: boolean) => {
+    setSelectedApplicationIds((current) => {
+      if (checked) {
+        return Array.from(new Set([...current, applicationId]));
+      }
+      return current.filter((id) => id !== applicationId);
+    });
+  };
 
   const handlePrint = () => {
-    window.print();
+    if (printScope === "selected" && selectedApplications.length === 0) {
+      toast({ title: "Nothing to print", description: "Select at least one application first.", variant: "destructive" });
+      return;
+    }
+
+    if (printScope === "vacancy" && printVacancyId === "all") {
+      toast({ title: "Choose a vacancy", description: "Select a specific vacancy before printing vacancy-only records.", variant: "destructive" });
+      return;
+    }
+
+    const rows = printRows;
+    const scopeTitle = printScope === "selected"
+      ? "Selected Applications"
+      : printScope === "vacancy"
+        ? `Applications for ${vacancyOptions.find((job) => job.id === printVacancyId)?.positionTitle ?? "Selected Vacancy"}`
+        : "All Application Records";
+
+    const summaryLines = [
+      `Search: ${searchTerm || "All"}`,
+      `Status: ${statusFilter === "all" ? "All" : statusFilter}`,
+      `Department: ${departmentFilter === "all" ? "All" : departmentOptions.find((department) => department.id === departmentFilter)?.name ?? departmentFilter}`,
+      `Category: ${categoryFilter === "all" ? "All" : categoryLabelMap[categoryFilter]}`,
+      `Date Applied: ${datePresetLabelMap[datePreset]}`,
+      `Sort: ${sortLabelMap[sortBy]}`,
+      `Print Scope: ${printScopeLabel}`
+    ];
+
+    // Condensed filter line: include only active/non-default filters
+    const activeFilters: string[] = [];
+    if (vacancyFilter !== "all") {
+      activeFilters.push(vacancyOptions.find((j) => j.id === vacancyFilter)?.positionTitle ?? vacancyFilter);
+    }
+    if (statusFilter !== "all") {
+      activeFilters.push(statusFilter);
+    }
+    if (departmentFilter !== "all") {
+      activeFilters.push(departmentOptions.find((d) => d.id === departmentFilter)?.name ?? departmentFilter);
+    }
+    if (categoryFilter !== "all") {
+      activeFilters.push(categoryLabelMap[categoryFilter]);
+    }
+    if (datePreset !== "all") {
+      activeFilters.push(datePresetLabelMap[datePreset]);
+    }
+    if (searchTerm.trim()) {
+      activeFilters.unshift(`Search: ${searchTerm.trim()}`);
+    }
+
+    const condensedFilters = activeFilters.length > 0 ? activeFilters.join(" | ") : "All application records";
+
+    // Use the browser's default rendering by opening a new window and
+    // copying stylesheet links and style tags from the current document head.
+    // This keeps the app's regular styles so printed output matches the app view.
+    const printWindow = window.open("", "_blank", "width=1200,height=900");
+    if (!printWindow) {
+      toast({ title: "Print failed", description: "Unable to open the print window.", variant: "destructive" });
+      return;
+    }
+
+    const rowsHtml = rows.length > 0
+      ? rows.map((row) => `
+          <tr>
+            <td>${row.applicantName}</td>
+            <td>${row.applicantEmail}</td>
+            <td>${row.vacancyTitle}</td>
+            <td>${row.departmentName}</td>
+            <td>${row.categoryLabel}</td>
+            <td class="status-td">${row.status}</td>
+            <td>${formatDisplayDate(row.dateApplied)}</td>
+            <td>${row.remarks}</td>
+          </tr>
+        `).join("")
+      : `<tr><td colspan="8" class="empty">No applications found.</td></tr>`;
+
+    // Collect stylesheet and style tags from the current document head
+    const headHtml = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+      .map((n) => n.outerHTML)
+      .join("");
+
+    const htmlContent = `<!doctype html>
+      <html>
+        <head>
+          <title>${scopeTitle}</title>
+          ${headHtml}
+          <style>
+            /* Ensure printed table fits and uses readable defaults */
+            @page { size: auto; margin: 12mm; }
+            body { background: #fff; color: #111; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; }
+            thead th { font-weight: 600; }
+            .status-td { white-space: nowrap; }
+            .meta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+            .meta .item { border: none; padding: 4px 6px; }
+          </style>
+        </head>
+        <body>
+          <div style="max-width:1100px;margin:0 auto;">
+            <header style="text-align:center;margin-bottom:8px;">
+              <h1 style="margin:0;font-size:18px;">WMSU HRMO Tracker</h1>
+              <div style="font-size:13px;color:#444;margin-top:4px;">${condensedFilters}</div>
+            </header>
+            <div class="meta" style="align-items:center;">
+              <div class="item"><strong>Total Records:</strong> ${rows.length}</div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Applicant</th>
+                  <th>Email</th>
+                  <th>Position</th>
+                  <th>Department</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                  <th>Date Applied</th>
+                  <th>Remarks</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </body>
+      </html>`;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+
+    const triggerPrint = () => {
+      try {
+        printWindow.focus();
+        setTimeout(() => {
+          printWindow.print();
+          printWindow.close();
+        }, 250);
+      } catch (err) {
+        // If printing fails, still close window after a delay
+        setTimeout(() => printWindow.close(), 1000);
+      }
+    };
+
+    if (printWindow.document.readyState === "complete") {
+      triggerPrint();
+    } else {
+      printWindow.addEventListener("load", triggerPrint, { once: true });
+    }
   };
 
   const handleExportPdf = async () => {
     setIsExporting(true);
     try {
       const { jsPDF } = await import("jspdf");
-      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 36;
@@ -172,33 +517,30 @@ export default function Reports() {
         cursorY = margin;
       };
 
-      const drawTitleBlock = (title: string, subtitle?: string) => {
+      const drawTitleBlock = () => {
         pdf.setFont("helvetica", "bold");
         pdf.setFontSize(18);
-        pdf.text(title, pageWidth / 2, cursorY + 10, { align: "center" });
+        pdf.text("WMSU HRMO Tracker - Applications Report", pageWidth / 2, cursorY + 10, { align: "center" });
         cursorY += 18;
-        if (subtitle) {
-          pdf.setFont("helvetica", "normal");
-          pdf.setFontSize(9.5);
-          pdf.text(subtitle, pageWidth / 2, cursorY + 10, { align: "center" });
-          cursorY += 14;
-        }
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(9.5);
+        pdf.text(`Generated: ${new Date().toLocaleString()}`, pageWidth / 2, cursorY + 10, { align: "center" });
+        cursorY += 14;
+        const filterSummary = [
+          `Search: ${searchTerm || "All"}`,
+          `Position: ${vacancyFilter === "all" ? "All" : vacancyOptions.find((job) => job.id === vacancyFilter)?.positionTitle ?? vacancyFilter}`,
+          `Status: ${statusFilter === "all" ? "All" : statusFilter}`,
+          `Department: ${departmentFilter === "all" ? "All" : departmentOptions.find((department) => department.id === departmentFilter)?.name ?? departmentFilter}`,
+          `Category: ${categoryFilter === "all" ? "All" : categoryLabelMap[categoryFilter]}`,
+          `Date: ${datePresetLabelMap[datePreset]}`,
+          `Sort: ${sortLabelMap[sortBy]}`
+        ].join(" | ");
+        pdf.setFontSize(8.5);
+        pdf.text(filterSummary, pageWidth / 2, cursorY + 10, { align: "center", maxWidth: contentWidth });
+        cursorY += 20;
         pdf.setDrawColor(140);
-        pdf.setLineWidth(0.8);
-        pdf.line(margin, cursorY + 6, pageWidth - margin, cursorY + 6);
-        cursorY += 16;
-      };
-
-      const drawSectionHeader = (title: string) => {
-        ensureSpace(22);
-        pdf.setFillColor(237, 237, 237);
-        pdf.rect(margin, cursorY, contentWidth, 18, "F");
-        pdf.setDrawColor(120);
-        pdf.rect(margin, cursorY, contentWidth, 18);
-        pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(10);
-        pdf.text(title, margin + 6, cursorY + 12);
-        cursorY += 22;
+        pdf.line(margin, cursorY, pageWidth - margin, cursorY);
+        cursorY += 12;
       };
 
       const drawTable = (headers: string[], rows: string[][], columnWidths: number[]) => {
@@ -209,8 +551,8 @@ export default function Reports() {
           rounded[rounded.length - 1] = contentWidth - rounded.slice(0, -1).reduce((sum, width) => sum + width, 0);
           return rounded;
         })();
-        const rowPadding = 6;
-        const lineHeight = 11;
+        const rowPadding = 5;
+        const lineHeight = 10;
 
         const drawRow = (values: string[], isHeader = false) => {
           const cellLines = values.map((value, index) => pdf.splitTextToSize(value, normalizedWidths[index] - rowPadding * 2) as string[]);
@@ -218,7 +560,7 @@ export default function Reports() {
           ensureSpace(rowHeight + 2);
 
           let startX = margin;
-          values.forEach((value, index) => {
+          values.forEach((_, index) => {
             const width = normalizedWidths[index];
             if (isHeader) {
               pdf.setFillColor(192, 23, 47);
@@ -228,7 +570,7 @@ export default function Reports() {
             pdf.rect(startX, cursorY, width, rowHeight);
             pdf.setFont("helvetica", isHeader ? "bold" : "normal");
             pdf.setTextColor(isHeader ? 255 : 40);
-            pdf.setFontSize(isHeader ? 8.5 : 9);
+            pdf.setFontSize(isHeader ? 8 : 8.5);
             const lines = cellLines[index];
             lines.forEach((line, lineIndex) => {
               pdf.text(line, startX + rowPadding, cursorY + 12 + lineIndex * lineHeight);
@@ -248,75 +590,14 @@ export default function Reports() {
         rows.forEach((row) => drawRow(row));
       };
 
-      const reportTitleMap: Record<ReportType, string> = {
-        "per-position": "Applicants Summary per Position",
-        hired: "Hired Applicants",
-        rejected: "Rejected Applicants",
-        status: "Applications by Status",
-        summary: "Hiring Summary per Month"
-      };
-
-      const generatedAt = new Date().toLocaleString();
-
-      drawTitleBlock(
-        "WMSU HRMO Tracker Report",
-        reportTitleMap[reportType]
+      drawTitleBlock();
+      drawTable(
+        ["Applicant", "Email", "Position", "Department", "Category", "Status", "Date Applied", "Remarks"],
+        buildExportRows(),
+        [110, 140, 110, 110, 85, 70, 80, 135]
       );
 
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(9);
-      pdf.text(`Generated: ${generatedAt}`, pageWidth / 2, cursorY + 4, { align: "center" });
-      cursorY += 16;
-
-      if (reportType === "per-position") {
-        drawSectionHeader("Applicants Summary per Position");
-        drawTable(
-          ["Position Title", "Applications", "Hired", "Rejected", "In Review"],
-          positionGroups.map(({ vacancy, apps }) => {
-            const hiredCount = apps.filter((a) => a.status === "Hired").length;
-            const rejectedCount = apps.filter((a) => a.status === "Rejected").length;
-            const inReviewCount = apps.filter((a) => a.status !== "Hired" && a.status !== "Rejected").length;
-            return [vacancy.positionTitle, String(apps.length), String(hiredCount), String(rejectedCount), String(inReviewCount)];
-          }),
-          [180, 72, 64, 72, 74]
-        );
-      } else if (reportType === "hired") {
-        drawSectionHeader("Hired Applicants");
-        drawTable(
-          ["Applicant", "Position", "Salary Grade", "Position Level", "Date Applied"],
-          hiredFiltered.map((app) => [
-            getApplicantName(app.applicantId),
-            getVacancyTitle(app.vacancyId),
-            String(getVacancySalaryGrade(app.vacancyId) ?? "N/A"),
-            getVacancyPositionLevel(app.vacancyId),
-            app.dateApplied
-          ]),
-          [150, 155, 70, 95, 80]
-        );
-      } else if (reportType === "rejected") {
-        drawSectionHeader("Rejected Applicants");
-        drawTable(
-          ["Applicant", "Position", "Remarks"],
-          rejected.map((app) => [getApplicantName(app.applicantId), getVacancyTitle(app.vacancyId), app.remarks ?? "—"]),
-          [145, 145, 260]
-        );
-      } else if (reportType === "status") {
-        drawSectionHeader("Applications by Status");
-        drawTable(
-          ["Status", "Count", "Percentage"],
-          statusStats.map(({ status, count, percentage }) => [status, String(count), `${percentage}%`]),
-          [255, 90, 105]
-        );
-      } else if (reportType === "summary") {
-        drawSectionHeader("Hiring Summary per Month");
-        drawTable(
-          ["Month", "Applications", "Hired", "Rejected"],
-          monthlySummary.map((row) => [row.month, String(row.applications), String(row.hired), String(row.rejected)]),
-          [220, 90, 90, 90]
-        );
-      }
-
-      pdf.save(`wmsu-hr-report-${reportType}.pdf`);
+      pdf.save("wmsu-hr-applications-report.pdf");
       toast({ title: "Success", description: "Report exported as PDF successfully!" });
     } catch (error) {
       toast({
@@ -332,47 +613,19 @@ export default function Reports() {
   const handleExportCsv = () => {
     setIsExporting(true);
     try {
-      let csvContent = "";
+      const rows = buildExportRows();
       const timestamp = new Date().toLocaleString();
-      csvContent += `WMSU HRMO Tracker Report - ${reportType}\nGenerated: ${timestamp}\n\n`;
-
-      if (reportType === "per-position") {
-        csvContent += "Position Title,Total Applications,Hired,Rejected,In Review\n";
-        positionGroups.forEach(({ vacancy, apps }) => {
-          const hiredCount = apps.filter((a) => a.status === "Hired").length;
-          const rejectedCount = apps.filter((a) => a.status === "Rejected").length;
-          const inReviewCount = apps.filter((a) => a.status !== "Hired" && a.status !== "Rejected").length;
-          csvContent += `"${vacancy.positionTitle}",${apps.length},${hiredCount},${rejectedCount},${inReviewCount}\n`;
-        });
-      } else if (reportType === "hired") {
-        csvContent += "Applicant Name,Position,Salary Grade,Position Level,Date Applied\n";
-        hiredFiltered.forEach((app) => {
-          const salaryGrade = getVacancySalaryGrade(app.vacancyId);
-          csvContent += `"${getApplicantName(app.applicantId)}","${getVacancyTitle(app.vacancyId)}","${salaryGrade ?? "N/A"}","${getVacancyPositionLevel(app.vacancyId)}","${app.dateApplied}"\n`;
-        });
-      } else if (reportType === "rejected") {
-        csvContent += "Applicant Name,Position,Remarks\n";
-        rejected.forEach((app) => {
-          const escapedRemarks = (app.remarks ?? "").replace(/"/g, '""');
-          csvContent += `"${getApplicantName(app.applicantId)}","${getVacancyTitle(app.vacancyId)}","${escapedRemarks}"\n`;
-        });
-      } else if (reportType === "status") {
-        csvContent += "Status,Count,Percentage\n";
-        statusStats.forEach(({ status, count, percentage }) => {
-          csvContent += `"${status}",${count},${percentage}%\n`;
-        });
-      } else if (reportType === "summary") {
-        csvContent += "Month,Total Applications,Hired,Rejected\n";
-        monthlySummary.forEach((row) => {
-          csvContent += `"${row.month}",${row.applications},${row.hired},${row.rejected}\n`;
-        });
-      }
+      let csvContent = `WMSU HRMO Tracker Applications Report\nGenerated: ${timestamp}\n\n`;
+      csvContent += "Applicant,Email,Position,Department,Category,Status,Date Applied,Remarks\n";
+      rows.forEach((row) => {
+        csvContent += `${row.map(escapeCsv).join(",")}\n`;
+      });
 
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
       link.setAttribute("href", url);
-      link.setAttribute("download", `wmsu-hr-report-${reportType}.csv`);
+      link.setAttribute("download", "wmsu-hr-applications-report.csv");
       link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
@@ -389,20 +642,28 @@ export default function Reports() {
     }
   };
 
+  const resetFilters = () => {
+    setSearchTerm("");
+    setVacancyFilter("all");
+    setStatusFilter("all");
+    setDepartmentFilter("all");
+    setCategoryFilter("all");
+    setDatePreset("all");
+    setDateFrom("");
+    setDateTo("");
+    setSortBy("date-desc");
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 no-print">
+      <div className="flex flex-col gap-4 no-print sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold font-display text-foreground">Reports</h1>
-          <p className="text-sm text-muted-foreground mt-1">Generate and export hiring reports</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Search, filter, sort, and export application records.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
-            <Eye className="w-4 h-4 mr-1" /> Preview
-          </Button>
-          <Button variant="outline" size="sm" onClick={handlePrint}>
-            <Printer className="w-4 h-4 mr-1" /> Print
-          </Button>
           <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={isExporting}>
             <Download className="w-4 h-4 mr-1" /> {isExporting ? "Exporting..." : "PDF"}
           </Button>
@@ -413,496 +674,344 @@ export default function Reports() {
       </div>
 
       <Card className="no-print">
-        <CardContent className="pt-5">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Select value={hiredPositionFilter} onValueChange={setHiredPositionFilter}>
-              <SelectTrigger><SelectValue placeholder="Filter by Position" /></SelectTrigger>
+        <CardContent className="pt-5 space-y-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
+              Application Filters
+            </div>
+            <Button variant="ghost" size="sm" onClick={resetFilters}>
+              <X className="w-4 h-4 mr-1" /> Clear filters
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="relative xl:col-span-2">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search applicant, position, department, status, or remarks"
+                className="pl-9"
+              />
+            </div>
+
+            <Select value={vacancyFilter} onValueChange={setVacancyFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Vacancy / Position" />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Positions</SelectItem>
-                {hiredPositionOptions.map((title) => (
-                  <SelectItem key={title} value={title}>{title}</SelectItem>
+                <SelectItem value="all">All positions</SelectItem>
+                {vacancyOptions.map((job) => (
+                  <SelectItem key={job.id} value={job.id}>
+                    {job.positionTitle}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Select value={hiredSalaryGradeFilter} onValueChange={setHiredSalaryGradeFilter}>
-              <SelectTrigger><SelectValue placeholder="Filter by Salary Grade" /></SelectTrigger>
+
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Applicant status" />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Salary Grades</SelectItem>
-                {hiredSalaryGradeOptions.map((grade) => (
-                  <SelectItem key={grade} value={grade}>SG-{grade}</SelectItem>
+                <SelectItem value="all">All statuses</SelectItem>
+                {allStatuses.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Select value={hiredPositionLevelFilter} onValueChange={setHiredPositionLevelFilter}>
-              <SelectTrigger><SelectValue placeholder="Filter by Position Level" /></SelectTrigger>
+
+            <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Department" />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Position Levels</SelectItem>
-                {hiredPositionLevelOptions.map((level) => (
-                  <SelectItem key={level} value={level}>{level}</SelectItem>
+                <SelectItem value="all">All departments</SelectItem>
+                {departmentOptions.map((department) => (
+                  <SelectItem key={department.id} value={department.id}>
+                    {department.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+
+            <Select value={categoryFilter} onValueChange={(value) => setCategoryFilter(value as CategoryFilter)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Applicant type / category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                <SelectItem value="first_level">First Level</SelectItem>
+                <SelectItem value="second_level">Second Level</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={datePreset} onValueChange={(value) => setDatePreset(value as DatePreset)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Date applied" />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(datePresetLabelMap).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Sort results" />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(sortLabelMap).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {datePreset === "custom" && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">From</p>
+                <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">To</p>
+                <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="no-print">
+        <CardContent className="pt-5 space-y-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Printer className="w-4 h-4 text-muted-foreground" />
+              Selective Printing
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Selected: {selectedApplicationIds.length} | Visible selected: {filteredApplications.filter((row) => selectedApplicationIdSet.has(row.id)).length}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
+            <Select value={printScope} onValueChange={(value) => setPrintScope(value as PrintScope)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Print scope" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All application records</SelectItem>
+                <SelectItem value="vacancy">Applications by specific vacancy</SelectItem>
+                <SelectItem value="selected">Selected applications only</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={printVacancyId} onValueChange={setPrintVacancyId} disabled={printScope !== "vacancy"}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose vacancy" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All vacancies</SelectItem>
+                {vacancyOptions.map((job) => (
+                  <SelectItem key={job.id} value={job.id}>
+                    {job.positionTitle}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Button variant="outline" onClick={() => setSelectedApplicationIds([])}>
+              Clear selected rows
+            </Button>
+
+            <Button onClick={handlePrint}>
+              <Printer className="w-4 h-4 mr-1" /> Print records
+            </Button>
           </div>
         </CardContent>
       </Card>
 
-      <Tabs value={reportType} onValueChange={(v) => setReportType(v as ReportType)} className="w-full">
-        <TabsList className="grid w-full grid-cols-5 no-print">
-          <TabsTrigger value="per-position">Per Position</TabsTrigger>
-          <TabsTrigger value="hired">Hired</TabsTrigger>
-          <TabsTrigger value="rejected">Rejected</TabsTrigger>
-          <TabsTrigger value="status">By Status</TabsTrigger>
-          <TabsTrigger value="summary">Summary</TabsTrigger>
-        </TabsList>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 no-print">
+        <Card className="border-border/60 shadow-sm">
+          <CardContent className="p-2 sm:p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Filtered Applications</p>
+            <p className="mt-1 text-lg font-bold leading-none">{summaryStats.matched}</p>
+            <p className="mt-1 text-xs text-muted-foreground">of {summaryStats.total} total</p>
+          </CardContent>
+        </Card>
 
-        <div id="report-content">
-        <TabsContent value="per-position" className="mt-4">
-          <Card>
-            <CardContent className="pt-5">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Total Positions</p>
-                    <p className="text-2xl font-bold">{jobs.length}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Total Applications</p>
-                    <p className="text-2xl font-bold">{applications.length}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Avg per Position</p>
-                    <p className="text-2xl font-bold">{jobs.length > 0 ? Math.round(applications.length / jobs.length) : 0}</p>
-                  </CardContent>
-                </Card>
-              </div>
+        <Card className="border-border/60 shadow-sm">
+          <CardContent className="p-2 sm:p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Unique Positions</p>
+            <p className="mt-1 text-lg font-bold leading-none">{summaryStats.uniquePositions}</p>
+            <p className="mt-1 text-xs text-muted-foreground">matching current filters</p>
+          </CardContent>
+        </Card>
 
-              <h3 className="font-semibold text-foreground mb-4">Applicants Summary per Position</h3>
-              <div className="overflow-x-auto border border-border/50 shadow-sm rounded-lg">
-              <table className="w-full text-sm min-w-[500px]">
-                <thead>
-                  <tr className="border-b border-border/70 bg-primary text-primary-foreground">
-                    <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Position Title</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Applications</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Hired</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Rejected</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">In Review</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {positionGroups.map(({ vacancy, apps }, idx) => {
-                    const hiredCount = apps.filter((a) => a.status === "Hired").length;
-                    const rejectedCount = apps.filter((a) => a.status === "Rejected").length;
-                    const inReviewCount = apps.filter((a) => 
-                      a.status !== "Hired" && a.status !== "Rejected"
-                    ).length;
-                    
-                    return (
-                      <tr key={vacancy.id} className={`border-b border-border/20 h-14 transition-colors ${
-                        idx % 2 === 0 ? "bg-background hover:bg-muted/30" : "bg-muted/10 hover:bg-muted/20"
-                      }`}>
-                        <td className="px-4 py-3 pr-3 font-medium">{vacancy.positionTitle}</td>
-                        <td className="px-4 py-3 text-center font-semibold">{apps.length}</td>
-                        <td className="px-4 py-3 text-center text-success font-medium">{hiredCount}</td>
-                        <td className="px-4 py-3 text-center text-destructive font-medium">{rejectedCount}</td>
-                        <td className="px-4 py-3 text-center text-muted-foreground">{inReviewCount}</td>
-                      </tr>
-                    );
-                  })}
-                  {positionGroups.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        No job vacancies available.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="hired" className="mt-4">
-          <Card>
-            <CardContent className="pt-5">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Filtered Hired</p>
-                    <p className="text-2xl font-bold text-success">{hiredFiltered.length}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Hiring Rate</p>
-                    <p className="text-2xl font-bold">{applications.length > 0 ? Math.round((hiredFiltered.length / applications.length) * 100) : 0}%</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Matching Filters</p>
-                    <p className="text-2xl font-bold">{hiredFiltered.length}</p>
-                  </CardContent>
-                </Card>
-              </div>
-              <h3 className="font-semibold text-foreground mb-4">Hired Applicants</h3>
-              <div className="overflow-x-auto border border-border/50 shadow-sm rounded-lg">
-              <table className="w-full text-sm min-w-[700px]">
-                <thead>
-                  <tr className="border-b border-border/70 bg-primary text-primary-foreground">
-                    <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Applicant</th>
-                    <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Position</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Salary Grade</th>
-                    <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Position Level</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide whitespace-nowrap hidden sm:table-cell">Date Applied</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hiredFiltered.map((app, idx) => (
-                    <tr key={app.id} className={`border-b border-border/20 h-14 transition-colors ${
-                      idx % 2 === 0 ? "bg-background hover:bg-muted/30" : "bg-muted/10 hover:bg-muted/20"
-                    }`}>
-                      <td className="px-4 py-3 pr-3 font-medium whitespace-nowrap">{getApplicantName(app.applicantId)}</td>
-                      <td className="px-4 py-3 pr-3 text-muted-foreground">{getVacancyTitle(app.vacancyId)}</td>
-                      <td className="px-4 py-3 text-center text-muted-foreground whitespace-nowrap">{getVacancySalaryGrade(app.vacancyId) ?? "N/A"}</td>
-                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{getVacancyPositionLevel(app.vacancyId)}</td>
-                      <td className="px-4 py-3 text-center text-muted-foreground whitespace-nowrap hidden sm:table-cell">{app.dateApplied}</td>
-                    </tr>
-                  ))}
-                  {hiredFiltered.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        No hired applicants found for the selected filters.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="rejected" className="mt-4">
-          <Card>
-            <CardContent className="pt-5">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Total Rejected</p>
-                    <p className="text-2xl font-bold text-destructive">{rejected.length}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Rejection Rate</p>
-                    <p className="text-2xl font-bold">{applications.length > 0 ? Math.round((rejected.length / applications.length) * 100) : 0}%</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">From Applications</p>
-                    <p className="text-2xl font-bold">{applications.length}</p>
-                  </CardContent>
-                </Card>
-              </div>
-              <h3 className="font-semibold text-foreground mb-4">Rejected Applicants</h3>
-              <div className="overflow-x-auto border border-border/50 shadow-sm rounded-lg">
-              <table className="w-full text-sm min-w-[400px]">
-                <thead>
-                  <tr className="border-b border-border/70 bg-primary text-primary-foreground">
-                    <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Applicant</th>
-                    <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Position</th>
-                    <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide hidden sm:table-cell">Remarks</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rejected.map((app, idx) => (
-                    <tr key={app.id} className={`border-b border-border/20 h-14 transition-colors ${
-                      idx % 2 === 0 ? "bg-background hover:bg-muted/30" : "bg-muted/10 hover:bg-muted/20"
-                    }`}>
-                      <td className="px-4 py-3 pr-3 font-medium whitespace-nowrap">{getApplicantName(app.applicantId)}</td>
-                      <td className="px-4 py-3 pr-3 text-muted-foreground">{getVacancyTitle(app.vacancyId)}</td>
-                      <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{app.remarks ?? "—"}</td>
-                    </tr>
-                  ))}
-                  {rejected.length === 0 && (
-                    <tr>
-                      <td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        No rejected applicants found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="status" className="mt-4">
-          <Card>
-            <CardContent className="pt-5">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                {statusStats.map(({ status, count, percentage }) => (
-                  <Card key={status}>
-                    <CardContent className="pt-4">
-                      <p className="text-xs text-muted-foreground leading-tight mb-2">{status}</p>
-                      <p className="text-xl font-bold">{count}</p>
-                      <p className="text-sm text-muted-foreground">{percentage}%</p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-              <h3 className="font-semibold text-foreground mb-4">Applications by Status</h3>
-              <div className="overflow-x-auto border border-border/50 shadow-sm rounded-lg">
-              <table className="w-full text-sm min-w-[400px]">
-                <thead>
-                  <tr className="border-b border-border/70 bg-primary text-primary-foreground">
-                    <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Status</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Count</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Percentage</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {statusStats.map(({ status, count, percentage }, idx) => (
-                    <tr key={status} className={`border-b border-border/20 h-14 transition-colors ${
-                      idx % 2 === 0 ? "bg-background hover:bg-muted/30" : "bg-muted/10 hover:bg-muted/20"
-                    }`}>
-                      <td className="px-4 py-3 align-middle">
-                        <span className={`status-badge ${getStatusColor(status)}`}>{status}</span>
-                      </td>
-                      <td className="px-4 py-3 text-center font-semibold">{count}</td>
-                      <td className="px-4 py-3 text-center text-muted-foreground">{percentage}%</td>
-                    </tr>
-                  ))}
-                  {statusStats.every(s => s.count === 0) && (
-                    <tr>
-                      <td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        No applications found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="summary" className="mt-4">
-          <Card>
-            <CardContent className="pt-5">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Total Months</p>
-                    <p className="text-2xl font-bold">{monthlySummary.length}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Avg Applications/Month</p>
-                    <p className="text-2xl font-bold">{monthlySummary.length > 0 ? Math.round(applications.length / monthlySummary.length) : 0}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Avg Hired/Month</p>
-                    <p className="text-2xl font-bold">{monthlySummary.length > 0 ? Math.round(hired.length / monthlySummary.length) : 0}</p>
-                  </CardContent>
-                </Card>
-              </div>
-              <h3 className="font-semibold text-foreground mb-4">Hiring Summary per Month</h3>
-              <div className="overflow-x-auto border border-border/50 shadow-sm rounded-lg">
-              <table className="w-full text-sm min-w-[350px]">
-                <thead>
-                  <tr className="border-b border-border/70 bg-primary text-primary-foreground">
-                    <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Month</th>
-                      <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Applications</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Hired</th>
-                    <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Rejected</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthlySummary.map((row, idx) => (
-                    <tr key={row.month} className={`border-b border-border/20 h-14 transition-colors ${
-                      idx % 2 === 0 ? "bg-background hover:bg-muted/30" : "bg-muted/10 hover:bg-muted/20"
-                    }`}>
-                      <td className="px-4 py-3 pr-3 font-medium whitespace-nowrap">{row.month}</td>
-                      <td className="px-4 py-3 text-center">{row.applications}</td>
-                      <td className="px-4 py-3 text-center text-success font-medium">{row.hired}</td>
-                      <td className="px-4 py-3 text-center text-destructive font-medium">{row.rejected}</td>
-                    </tr>
-                  ))}
-                  {monthlySummary.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        No applications found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        </div>
-      </Tabs>
-
-      {/* Preview Dialog */}
-      <Dialog open={showPreview} onOpenChange={setShowPreview}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Report Preview</DialogTitle>
-            <DialogDescription>Preview of the {reportType} report</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {reportType === "per-position" && (
+        <Card className="border-border/60 shadow-sm">
+          <CardContent className="p-2 sm:p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Hired / Rejected</p>
+            <div className="mt-2 flex items-center justify-start gap-4">
               <div>
-                <h3 className="font-semibold text-foreground mb-4">Applicants Summary per Position</h3>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="pb-2 text-left text-muted-foreground">Position Title</th>
-                      <th className="pb-2 text-center text-muted-foreground">Applications</th>
-                      <th className="pb-2 text-center text-muted-foreground">Hired</th>
-                      <th className="pb-2 text-center text-muted-foreground">Rejected</th>
-                      <th className="pb-2 text-center text-muted-foreground">In Review</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {positionGroups.map(({ vacancy, apps }) => {
-                      const hiredCount = apps.filter((a) => a.status === "Hired").length;
-                      const rejectedCount = apps.filter((a) => a.status === "Rejected").length;
-                      const inReviewCount = apps.filter((a) => 
-                        a.status !== "Hired" && a.status !== "Rejected"
-                      ).length;
-                      
-                      return (
-                        <tr key={vacancy.id} className="border-b last:border-0">
-                          <td className="py-3 pr-3 font-medium">{vacancy.positionTitle}</td>
-                          <td className="py-3 text-center font-semibold">{apps.length}</td>
-                          <td className="py-3 text-center text-success font-medium">{hiredCount}</td>
-                          <td className="py-3 text-center text-destructive font-medium">{rejectedCount}</td>
-                          <td className="py-3 text-center text-muted-foreground">{inReviewCount}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <p className="text-lg font-bold leading-none text-success">{summaryStats.hiredCount}</p>
+                <p className="text-xs text-muted-foreground">Hired</p>
               </div>
-            )}
-
-            {reportType === "hired" && (
               <div>
-                <h3 className="font-semibold text-foreground mb-4">Hired Applicants</h3>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="pb-2 text-left text-muted-foreground">Applicant</th>
-                      <th className="pb-2 text-left text-muted-foreground">Position</th>
-                      <th className="pb-2 text-center text-muted-foreground">Salary Grade</th>
-                      <th className="pb-2 text-left text-muted-foreground">Position Level</th>
-                      <th className="pb-2 text-center text-muted-foreground whitespace-nowrap">Date Applied</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {hiredFiltered.map((app) => (
-                      <tr key={app.id} className="border-b last:border-0">
-                        <td className="py-2 pr-3 font-medium whitespace-nowrap">{getApplicantName(app.applicantId)}</td>
-                        <td className="py-2 pr-3 text-muted-foreground">{getVacancyTitle(app.vacancyId)}</td>
-                        <td className="py-2 text-center text-muted-foreground whitespace-nowrap">{getVacancySalaryGrade(app.vacancyId) ?? "N/A"}</td>
-                        <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">{getVacancyPositionLevel(app.vacancyId)}</td>
-                        <td className="py-2 text-center text-muted-foreground whitespace-nowrap">{app.dateApplied}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <p className="text-lg font-bold leading-none text-destructive">{summaryStats.rejectedCount}</p>
+                <p className="text-xs text-muted-foreground">Rejected</p>
               </div>
-            )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-            {reportType === "rejected" && (
-              <div>
-                <h3 className="font-semibold text-foreground mb-4">Rejected Applicants</h3>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="pb-2 text-left text-muted-foreground">Applicant</th>
-                      <th className="pb-2 text-left text-muted-foreground">Position</th>
-                      <th className="pb-2 text-left text-muted-foreground">Remarks</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rejected.map((app) => (
-                      <tr key={app.id} className="border-b last:border-0">
-                        <td className="py-2 pr-3 font-medium whitespace-nowrap">{getApplicantName(app.applicantId)}</td>
-                        <td className="py-2 pr-3 text-muted-foreground">{getVacancyTitle(app.vacancyId)}</td>
-                        <td className="py-2 text-muted-foreground">{app.remarks ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {reportType === "status" && (
-              <div>
-                <h3 className="font-semibold text-foreground mb-4">Applications by Status</h3>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="pb-2 text-left text-muted-foreground">Status</th>
-                      <th className="pb-2 text-center text-muted-foreground">Count</th>
-                      <th className="pb-2 text-center text-muted-foreground">Percentage</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {statusStats.map(({ status, count, percentage }) => (
-                      <tr key={status} className="border-b last:border-0">
-                        <td className="py-2 pr-3 font-medium">
-                          <span className={`status-badge ${getStatusColor(status)}`}>{status}</span>
-                        </td>
-                        <td className="py-2 text-center font-semibold">{count}</td>
-                        <td className="py-2 text-center text-muted-foreground">{percentage}%</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {reportType === "summary" && (
-              <div>
-                <h3 className="font-semibold text-foreground mb-4">Hiring Summary per Month</h3>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="pb-2 text-left text-muted-foreground">Month</th>
-                      <th className="pb-2 text-center text-muted-foreground">Applications</th>
-                      <th className="pb-2 text-center text-muted-foreground">Hired</th>
-                      <th className="pb-2 text-center text-muted-foreground">Rejected</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthlySummary.map((row) => (
-                      <tr key={row.month} className="border-b last:border-0">
-                        <td className="py-2 pr-3 font-medium whitespace-nowrap">{row.month}</td>
-                        <td className="py-2 text-center">{row.applications}</td>
-                        <td className="py-2 text-center text-success font-medium">{row.hired}</td>
-                        <td className="py-2 text-center text-destructive font-medium">{row.rejected}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+      <Card>
+        <CardContent className="pt-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
+            <div>
+              <h3 className="font-semibold text-foreground">Applications View</h3>
+              <p className="text-sm text-muted-foreground">
+                Showing {filteredApplications.length} result{filteredApplications.length === 1 ? "" : "s"} sorted by {sortLabelMap[sortBy].toLowerCase()}.
+              </p>
+            </div>
           </div>
+
+          <div className="overflow-x-auto border border-border/50 shadow-sm rounded-lg">
+            <table className="w-full text-sm min-w-[1100px]">
+              <thead>
+                <tr className="border-b border-border/70 bg-primary text-primary-foreground">
+                  <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide w-14">
+                    <Checkbox
+                      checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                      onCheckedChange={(checked) => handleSelectVisibleApplications(checked === true)}
+                      aria-label="Select all visible applications"
+                    />
+                  </th>
+                  <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Applicant</th>
+                  <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Position</th>
+                  <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Department</th>
+                  <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Category</th>
+                  <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Status</th>
+                  <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide whitespace-nowrap">Date Applied</th>
+                  <th className="h-12 px-4 py-3 text-left text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Remarks</th>
+                  <th className="h-12 px-4 py-3 text-center text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">View</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredApplications.map((row, index) => (
+                  <tr
+                    key={row.id}
+                    className={`border-b border-border/20 h-14 transition-colors ${
+                      index % 2 === 0 ? "bg-background hover:bg-muted/30" : "bg-muted/10 hover:bg-muted/20"
+                    }`}
+                  >
+                    <td className="px-4 py-3 text-center align-middle">
+                      <Checkbox
+                        checked={selectedApplicationIdSet.has(row.id)}
+                        onCheckedChange={(checked) => handleToggleApplicationSelection(row.id, checked === true)}
+                        aria-label={`Select application for ${row.applicantName}`}
+                      />
+                    </td>
+                    <td className="px-4 py-3 pr-3 font-medium">
+                      <div className="space-y-1">
+                        <p>{row.applicantName}</p>
+                        <p className="text-xs text-muted-foreground">{row.applicantEmail}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{row.vacancyTitle}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{row.departmentName}</td>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.categoryLabel}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`status-badge ${getStatusColor(row.status)}`}>{row.status}</span>
+                    </td>
+                    <td className="px-4 py-3 text-center text-muted-foreground whitespace-nowrap">{formatDisplayDate(row.dateApplied)}</td>
+                    <td className="px-4 py-3 text-muted-foreground max-w-[280px] truncate">{row.remarks}</td>
+                    <td className="px-4 py-3 text-center">
+                      <Button variant="outline" size="sm" onClick={() => setSelectedApplicationId(row.id)}>
+                        <Eye className="w-4 h-4 mr-1" /> View
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredApplications.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No applications found for the selected filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={Boolean(selectedApplication)} onOpenChange={(open) => !open && setSelectedApplicationId(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Application Details</DialogTitle>
+            <DialogDescription>Full view of the selected application record.</DialogDescription>
+          </DialogHeader>
+
+          {selectedApplication && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Card>
+                <CardContent className="pt-4 space-y-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Applicant</p>
+                    <p className="font-semibold">{selectedApplication.applicantName}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Email</p>
+                    <p>{selectedApplication.applicantEmail}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Date Applied</p>
+                    <p>{formatDisplayDate(selectedApplication.dateApplied)}</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="pt-4 space-y-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Position</p>
+                    <p className="font-semibold">{selectedApplication.vacancyTitle}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Department</p>
+                    <p>{selectedApplication.departmentName}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Category</p>
+                    <p>{selectedApplication.categoryLabel}</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="sm:col-span-2">
+                <CardContent className="pt-4 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Status</span>
+                    <span className={`status-badge ${getStatusColor(selectedApplication.status)}`}>{selectedApplication.status}</span>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Remarks</p>
+                    <p className="whitespace-pre-wrap">{selectedApplication.remarks}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
