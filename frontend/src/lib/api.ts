@@ -379,6 +379,7 @@ export async function updateApplicationStatus(payload: {
   rejectionSubtype?: "not_qualified" | "non_teaching" | "teaching";
   selectedTemplateKey?: string;
   emailTemplateText?: string;
+  departmentId?: string;
 }) {
   return apiFetch<{ application: Application; history: StatusHistory }>(`/applications/${payload.id}/status`, {
     method: "PATCH",
@@ -398,7 +399,8 @@ export async function updateApplicationStatus(payload: {
       notifyApplicant: payload.notifyApplicant,
       rejectionSubtype: payload.rejectionSubtype,
       selectedTemplateKey: payload.selectedTemplateKey,
-      emailTemplateText: payload.emailTemplateText
+      emailTemplateText: payload.emailTemplateText,
+      departmentId: payload.departmentId
     })
   });
 }

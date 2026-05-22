@@ -40,6 +40,7 @@ const APPLICATION_STATUSES = [
 const AVAILABLE_PLACEHOLDERS = [
   { label: "Applicant Name", value: "{{applicantName}}" },
   { label: "Job Title", value: "{{jobTitle}}" },
+  { label: "Department", value: "{{department}}" },
   { label: "Date", value: "{{date}}" },
   { label: "Exam Date", value: "{{examDate}}" },
   { label: "Exam Venue", value: "{{examVenue}}" },
@@ -49,7 +50,8 @@ const AVAILABLE_PLACEHOLDERS = [
   { label: "Final Eval Venue", value: "{{finalEvalVenue}}" },
 ] as const;
 
-const REQUIRED_PLACEHOLDERS = ["{{applicantName}}", "{{jobTitle}}", "{{date}}"] as const;
+// No placeholders are required when creating a template — keep placeholders optional
+const REQUIRED_PLACEHOLDERS: string[] = [];
 
 const DEFAULT_TEMPLATE_KEYS = new Set([
   "not_qualified",
@@ -225,26 +227,7 @@ function TemplateEditor({ form, setForm, isNew, bodyRef }: TemplateEditorProps) 
           onChange={(e) => setForm({ ...form, body: e.target.value })}
           placeholder={`Dear {{applicantName}},\n\nWe are pleased to invite you for an interview for the {{jobTitle}} position.\n\nDate: {{date}}\n\nBest regards,\nHR Department`}
         />
-        <div className="rounded-lg bg-muted/40 border border-border/50 px-3 py-2 space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Required placeholders:</p>
-          <div className="flex flex-wrap gap-1.5">
-            {REQUIRED_PLACEHOLDERS.map((p) => {
-              const missing = !form.body.includes(p);
-              return (
-                <span
-                  key={p}
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-mono border ${
-                    missing
-                      ? "bg-destructive/10 border-destructive/40 text-destructive"
-                      : "bg-green-50 border-green-300 text-green-700"
-                  }`}
-                >
-                  {missing ? "✗" : "✓"} {p}
-                </span>
-              );
-            })}
-          </div>
-        </div>
+        {/* Placeholders are optional — no required-placeholder indicator shown */}
       </div>
     </div>
   );
@@ -438,8 +421,6 @@ export default function Archive() {
     if (!form.subject.trim()) return "Subject is required.";
     if (!form.body.trim()) return "Body is required.";
     if (isNew && !form.linkedStatus) return "Please select a linked application status.";
-    const missing = REQUIRED_PLACEHOLDERS.filter((p) => !form.body.includes(p));
-    if (missing.length > 0) return `Missing required placeholders: ${missing.join(", ")}`;
     return null;
   };
 

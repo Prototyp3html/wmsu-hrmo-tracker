@@ -120,6 +120,10 @@ function isWeakPassword(password: string) {
   return getPasswordStrengthScore(password) <= 1;
 }
 
+function renderTemplateText(template: string, variables: Record<string, string>) {
+  return template.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_match, key: string) => variables[key] ?? "");
+}
+
 async function logAudit(req: Request, action: string, userId?: string, details?: Record<string, unknown>) {
   const ip = req.ip;
   const userAgent = req.headers["user-agent"] ?? null;
@@ -436,10 +440,6 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
   }
 ];
 
-function renderTemplateText(template: string, variables: Record<string, string>) {
-  return template.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_match, key: string) => variables[key] ?? "");
-}
-
 function formatTemplateDate(value: Date = new Date()) {
   return value.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
@@ -641,6 +641,7 @@ async function sendApplicationStatusEmail(payload: {
   applicantEmail: string;
   applicantName: string;
   jobTitle: string;
+  department?: string;
   status: string;
   remarks?: string;
   rejectionSubtype?: RejectionSubtype;
@@ -675,6 +676,7 @@ async function sendApplicationStatusEmail(payload: {
     body = renderTemplateText(selectedTemplate.body, {
       applicantName: payload.applicantName,
       jobTitle: payload.jobTitle,
+      department: payload.department ?? "",
       date: formattedDate,
       today: formattedDate
     });
@@ -684,6 +686,7 @@ async function sendApplicationStatusEmail(payload: {
     body = renderTemplateText(payload.rejectionTemplateText.trim(), {
       applicantName: payload.applicantName,
       jobTitle: payload.jobTitle,
+      department: payload.department ?? "",
       date: formattedDate,
       today: formattedDate
     });
@@ -693,6 +696,7 @@ async function sendApplicationStatusEmail(payload: {
     body = renderTemplateText(payload.qualificationTemplateText.trim(), {
       applicantName: payload.applicantName,
       jobTitle: payload.jobTitle,
+      department: payload.department ?? "",
       date: formattedDate,
       today: formattedDate
     });
@@ -2775,8 +2779,9 @@ app.patch("/api/applications/:id/status", requireAuth, asyncHandler(async (req: 
     notifyApplicant,
     rejectionSubtype,
     selectedTemplateKey,
-    rejectionTemplateText
-    ,qualificationTemplateText
+    rejectionTemplateText,
+    qualificationTemplateText,
+    departmentId
   } = req.body as {
     status?: string;
     remarks?: string;
@@ -2795,6 +2800,7 @@ app.patch("/api/applications/:id/status", requireAuth, asyncHandler(async (req: 
     selectedTemplateKey?: string;
     rejectionTemplateText?: string;
     qualificationTemplateText?: string;
+    departmentId?: string;
   };
 
   if (!status) {
@@ -2884,13 +2890,18 @@ app.patch("/api/applications/:id/status", requireAuth, asyncHandler(async (req: 
   );
 
   const emailContext = await fetchOne<any>(
-    `SELECT a.full_name, a.email, j.position_title
+    `SELECT a.full_name, a.email, j.position_title, d.name AS department_name, j.department_id
      FROM applications ap
      JOIN applicants a ON a.id = ap.applicant_id
      JOIN job_vacancies j ON j.id = ap.vacancy_id
+     LEFT JOIN departments d ON d.id = j.department_id
      WHERE ap.id = $1`,
     [req.params.id]
   );
+
+  const selectedDepartmentName = departmentId
+    ? (await fetchOne<any>("SELECT name FROM departments WHERE id = $1", [departmentId]))?.name ?? ""
+    : emailContext?.department_name ?? "";
 
   const shouldNotifyApplicant = notifyApplicant !== false;
 
@@ -2913,6 +2924,7 @@ app.patch("/api/applications/:id/status", requireAuth, asyncHandler(async (req: 
         applicantEmail: emailContext.email,
         applicantName: emailContext.full_name,
         jobTitle: emailContext.position_title,
+        department: selectedDepartmentName,
         status,
         remarks,
         rejectionSubtype,

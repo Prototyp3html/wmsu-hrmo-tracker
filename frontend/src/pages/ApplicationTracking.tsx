@@ -19,6 +19,7 @@ import {
   deleteApplicant,
   fetchApplicants,
   fetchApplications,
+  fetchDepartments,
   fetchEmailTemplates,
   fetchJobs,
   fetchStatusHistory,
@@ -26,7 +27,7 @@ import {
 } from "@/lib/api";
 import { allStatuses, getStatusColor, getNextSuggestedStatus } from "@/lib/status";
 import type { Application, ApplicationStatus, EmailTemplate } from "@/lib/types";
-import { Clock, MessageSquare, ArrowRight, Lightbulb, Ellipsis, Eye, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, Clock, Ellipsis, Lightbulb, Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 
@@ -77,6 +78,7 @@ export default function ApplicationTracking() {
     notifyApplicant: boolean;
     selectedTemplateKey: string;
     emailTemplateText: string;
+    departmentOverride?: string;
   } | null>(null);
   const [suggestedApp, setSuggestedApp] = useState<Application | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -95,6 +97,11 @@ export default function ApplicationTracking() {
   const { data: jobVacancies = [] } = useQuery({
     queryKey: ["jobs"],
     queryFn: fetchJobs
+  });
+
+  const { data: departments = [] } = useQuery({
+    queryKey: ["departments"],
+    queryFn: fetchDepartments
   });
 
   const { data: emailTemplates = [] } = useQuery({
@@ -138,6 +145,9 @@ export default function ApplicationTracking() {
   const getVacancyTitle = (id: string) =>
     jobVacancies.find((v) => v.id === id)?.positionTitle ?? "Unknown";
 
+  const getDepartmentName = (departmentId?: string) =>
+    departments.find((d) => d.id === departmentId)?.name ?? "";
+
   // Get all templates linked to a given status
   const getTemplatesForStatus = (status: string): EmailTemplate[] =>
     emailTemplates.filter((t) => t.linkedStatus === status);
@@ -150,6 +160,7 @@ export default function ApplicationTracking() {
       jobTitle,
       date: today,
       today,
+      department: extraVars?.department ?? "",
       ...extraVars
     });
   };
@@ -174,13 +185,17 @@ export default function ApplicationTracking() {
   const handleTemplateSelect = (
     templateKey: string,
     applicantName: string,
-    jobTitle: string
+    jobTitle: string,
+    departmentId?: string
   ) => {
     const template = emailTemplates.find((t) => t.templateKey === templateKey);
-    const text = template ? renderTemplate(template, applicantName, jobTitle) : "";
+    const deptName = getDepartmentName(departmentId);
+    const text = template ? renderTemplate(template, applicantName, jobTitle, { department: deptName }) : "";
+    const templateNeedsDepartment = Boolean(template?.body.includes("{{department}}"));
     setStatusForm((prev) => prev ? ({
       ...prev,
       selectedTemplateKey: templateKey,
+      departmentOverride: templateNeedsDepartment ? prev.departmentOverride : undefined,
       emailTemplateText: text
     }) : prev);
   };
@@ -231,6 +246,8 @@ export default function ApplicationTracking() {
                 {filtered.map((app, idx) => {
                   const applicantName = getApplicantName(app.applicantId);
                   const jobTitle = getVacancyTitle(app.vacancyId);
+                  const job = jobVacancies.find((v) => v.id === app.vacancyId);
+                  const deptId = job?.departmentId;
 
                   return (
                     <TableRow
@@ -414,6 +431,13 @@ export default function ApplicationTracking() {
                                     {statusForm && (() => {
                                       const templates = getTemplatesForStatus(statusForm.status);
                                       if (templates.length < 2) return null;
+                                      const selectedTemplate = statusForm.selectedTemplateKey
+                                        ? templates.find((t) => t.templateKey === statusForm.selectedTemplateKey) ?? null
+                                        : null;
+                                      const chosenTemplate = templates.length === 1 ? templates[0] : null;
+                                      const templateForCheck = selectedTemplate ?? chosenTemplate;
+                                      const needsDepartment = Boolean(templateForCheck?.body.includes("{{department}}"));
+
                                       return (
                                         <div className={`space-y-2 rounded-md border p-3 ${statusForm.status === "Rejected" ? "bg-amber-50" : "bg-emerald-50"}`}>
                                           <Label className="font-semibold">Email Template</Label>
@@ -422,7 +446,7 @@ export default function ApplicationTracking() {
                                           </p>
                                           <Select
                                             value={statusForm.selectedTemplateKey}
-                                            onValueChange={(key) => handleTemplateSelect(key, applicantName, jobTitle)}
+                                            onValueChange={(key) => handleTemplateSelect(key, applicantName, jobTitle, deptId)}
                                           >
                                             <SelectTrigger>
                                               <SelectValue placeholder="Choose a template..." />
@@ -435,6 +459,36 @@ export default function ApplicationTracking() {
                                               ))}
                                             </SelectContent>
                                           </Select>
+
+                                          {needsDepartment && (
+                                            <div className="mt-2">
+                                              <Label className="font-medium">Department (optional override)</Label>
+                                              <Select
+                                                value={statusForm.departmentOverride ?? "__vacancy__"}
+                                                onValueChange={(val) => {
+                                                  setStatusForm((prev) => {
+                                                    if (!prev) return prev;
+                                                    const newDeptId = val === "__vacancy__" ? undefined : (val || undefined);
+                                                    const template = emailTemplates.find((t) => t.templateKey === prev.selectedTemplateKey) || null;
+                                                    const newText = template
+                                                      ? renderTemplate(template, applicantName, jobTitle, { department: getDepartmentName(newDeptId ?? deptId) })
+                                                      : prev.emailTemplateText;
+                                                    return { ...prev, departmentOverride: newDeptId, emailTemplateText: newText };
+                                                  });
+                                                }}
+                                              >
+                                                <SelectTrigger>
+                                                  <SelectValue placeholder="Use vacancy department" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="__vacancy__">Use vacancy department</SelectItem>
+                                                  {departments.map((d) => (
+                                                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                                                  ))}
+                                                </SelectContent>
+                                              </Select>
+                                            </div>
+                                          )}
 
                                           {statusForm.selectedTemplateKey && (
                                             <div className="space-y-1 mt-2">
@@ -493,7 +547,7 @@ export default function ApplicationTracking() {
 
                                         const selectedTemplateKey = statusForm.selectedTemplateKey || chosenTemplate?.templateKey;
                                         const emailTemplateText = statusForm.emailTemplateText.trim() || (chosenTemplate
-                                          ? renderTemplate(chosenTemplate, applicantName, jobTitle)
+                                          ? renderTemplate(chosenTemplate, applicantName, jobTitle, { department: getDepartmentName(deptId) })
                                           : undefined);
 
                                         updateMutation.mutate({
@@ -512,7 +566,8 @@ export default function ApplicationTracking() {
                                           finalEvaluationVenue: statusForm.finalEvaluationVenue.trim() || undefined,
                                           notifyApplicant: statusForm.notifyApplicant,
                                           selectedTemplateKey: selectedTemplateKey || undefined,
-                                          emailTemplateText: emailTemplateText || undefined
+                                          emailTemplateText: emailTemplateText || undefined,
+                                          departmentId: statusForm.departmentOverride || undefined
                                         });
                                       }}
                                     >
@@ -549,10 +604,7 @@ export default function ApplicationTracking() {
                                               <span className={`status-badge ${getStatusColor(h.status)}`}>{h.status}</span>
                                               <p className="text-xs text-muted-foreground mt-1">{h.updatedAt} — by {h.updatedBy}</p>
                                               {h.remarks && (
-                                                <p className="text-xs mt-1 flex items-start gap-1">
-                                                  <MessageSquare className="w-3 h-3 mt-0.5 text-muted-foreground" />
-                                                  {h.remarks}
-                                                </p>
+                                                <p className="text-xs mt-1">{h.remarks}</p>
                                               )}
                                             </div>
                                           </div>
