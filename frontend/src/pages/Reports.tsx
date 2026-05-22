@@ -412,6 +412,40 @@ export default function Reports() {
         </div>
       </div>
 
+      <Card className="no-print">
+        <CardContent className="pt-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Select value={hiredPositionFilter} onValueChange={setHiredPositionFilter}>
+              <SelectTrigger><SelectValue placeholder="Filter by Position" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Positions</SelectItem>
+                {hiredPositionOptions.map((title) => (
+                  <SelectItem key={title} value={title}>{title}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={hiredSalaryGradeFilter} onValueChange={setHiredSalaryGradeFilter}>
+              <SelectTrigger><SelectValue placeholder="Filter by Salary Grade" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Salary Grades</SelectItem>
+                {hiredSalaryGradeOptions.map((grade) => (
+                  <SelectItem key={grade} value={grade}>SG-{grade}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={hiredPositionLevelFilter} onValueChange={setHiredPositionLevelFilter}>
+              <SelectTrigger><SelectValue placeholder="Filter by Position Level" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Position Levels</SelectItem>
+                {hiredPositionLevelOptions.map((level) => (
+                  <SelectItem key={level} value={level}>{level}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
       <Tabs value={reportType} onValueChange={(v) => setReportType(v as ReportType)} className="w-full">
         <TabsList className="grid w-full grid-cols-5 no-print">
           <TabsTrigger value="per-position">Per Position</TabsTrigger>
@@ -495,35 +529,6 @@ export default function Reports() {
         <TabsContent value="hired" className="mt-4">
           <Card>
             <CardContent className="pt-5">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6 no-print">
-                <Select value={hiredPositionFilter} onValueChange={setHiredPositionFilter}>
-                  <SelectTrigger><SelectValue placeholder="Filter by Position" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Positions</SelectItem>
-                    {hiredPositionOptions.map((title) => (
-                      <SelectItem key={title} value={title}>{title}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={hiredSalaryGradeFilter} onValueChange={setHiredSalaryGradeFilter}>
-                  <SelectTrigger><SelectValue placeholder="Filter by Salary Grade" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Salary Grades</SelectItem>
-                    {hiredSalaryGradeOptions.map((grade) => (
-                      <SelectItem key={grade} value={grade}>SG-{grade}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={hiredPositionLevelFilter} onValueChange={setHiredPositionLevelFilter}>
-                  <SelectTrigger><SelectValue placeholder="Filter by Position Level" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Position Levels</SelectItem>
-                    {hiredPositionLevelOptions.map((level) => (
-                      <SelectItem key={level} value={level}>{level}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                 <Card>
                   <CardContent className="pt-4">
