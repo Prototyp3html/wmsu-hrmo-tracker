@@ -50,8 +50,8 @@ const AVAILABLE_PLACEHOLDERS = [
   { label: "Final Eval Venue", value: "{{finalEvalVenue}}" },
 ] as const;
 
-// No placeholders are required when creating a template — keep placeholders optional
-const REQUIRED_PLACEHOLDERS: string[] = [];
+// Placeholders are optional, but once inserted they should not be deleted accidentally.
+const PROTECTED_PLACEHOLDERS = AVAILABLE_PLACEHOLDERS.map((placeholder) => placeholder.value);
 
 const DEFAULT_TEMPLATE_KEYS = new Set([
   "not_qualified",
@@ -66,7 +66,7 @@ function isDefaultTemplate(template: EmailTemplate) {
 }
 
 function getPlaceholderRanges(text: string) {
-  return REQUIRED_PLACEHOLDERS.flatMap((placeholder) => {
+  return PROTECTED_PLACEHOLDERS.flatMap((placeholder) => {
     const ranges: Array<{ start: number; end: number }> = [];
     let index = text.indexOf(placeholder);
     while (index !== -1) {
@@ -227,7 +227,26 @@ function TemplateEditor({ form, setForm, isNew, bodyRef }: TemplateEditorProps) 
           onChange={(e) => setForm({ ...form, body: e.target.value })}
           placeholder={`Dear {{applicantName}},\n\nWe are pleased to invite you for an interview for the {{jobTitle}} position.\n\nDate: {{date}}\n\nBest regards,\nHR Department`}
         />
-        {/* Placeholders are optional — no required-placeholder indicator shown */}
+        <div className="rounded-lg bg-muted/40 border border-border/50 px-3 py-2 space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Protected placeholders:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {PROTECTED_PLACEHOLDERS.map((p) => {
+              const missing = !form.body.includes(p);
+              return (
+                <span
+                  key={p}
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-mono border ${
+                    missing
+                      ? "bg-destructive/10 border-destructive/40 text-destructive"
+                      : "bg-green-50 border-green-300 text-green-700"
+                  }`}
+                >
+                  {missing ? "✗" : "✓"} {p}
+                </span>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
