@@ -86,6 +86,29 @@ const TEACHING_GROUPS = [
   }
 ];
 
+const TEACHING_CRITERIA = Object.fromEntries(
+  TEACHING_GROUPS.flatMap((group) =>
+    Object.entries(group.items).map(([key, item]) => [key, { name: item.name, max: item.max }])
+  )
+) as Record<string, { name: string; max: number }>;
+
+const ADMIN_CRITERIA_KEYS = new Set([
+  ...Object.keys(FIRST_LEVEL_CRITERIA),
+  ...Object.keys(SECOND_LEVEL_CRITERIA)
+]);
+
+const TEACHING_ONLY_KEYS = new Set(
+  Object.keys(TEACHING_CRITERIA).filter((key) => !ADMIN_CRITERIA_KEYS.has(key))
+);
+
+function hasTeachingScores(panelists: Array<{ scores: PanelistScores }> | undefined) {
+  if (!panelists || panelists.length === 0) return false;
+
+  return panelists.some((panelist) =>
+    Object.keys(panelist.scores ?? {}).some((scoreKey) => TEACHING_ONLY_KEYS.has(scoreKey))
+  );
+}
+
 // ─── Helpers (defined once, outside any component) ───────────────────────────
 
 function calculateAverages(
@@ -144,6 +167,63 @@ function calculateTotalScore(
   const avgValues = Object.values(averages);
   if (avgValues.length === 0) return 0;
   return avgValues.reduce((a, b) => a + b, 0) / avgValues.length;
+}
+
+function calculateTeachingSectionPercentages(panelists: Array<{ scores: PanelistScores }>) {
+  return TEACHING_GROUPS.map((group, groupIndex) => {
+    const itemEntries = Object.entries(group.items);
+    const highestPossible = itemEntries.reduce((sum, [, item]) => sum + item.max, 0);
+
+    const averageTotal = itemEntries.reduce((sum, [key]) => {
+      const scores = panelists
+        .map((panelist) => panelist.scores?.[key])
+        .filter((score): score is number => score !== undefined);
+
+      if (scores.length === 0) return sum;
+
+      const average = scores.reduce((acc, value) => acc + value, 0) / scores.length;
+      return sum + average;
+    }, 0);
+
+    const weightedScore = highestPossible > 0 ? (averageTotal / highestPossible) * group.weight : 0;
+
+    return {
+      code: String.fromCharCode(65 + groupIndex),
+      title: group.title,
+      weight: group.weight,
+      averageTotal,
+      highestPossible,
+      weightedScore
+    };
+  });
+}
+
+function calculateTeachingPanelistSectionScores(panelists: Array<{ name: string; scores: PanelistScores }>) {
+  return panelists.map((panelist) => {
+    const sections = TEACHING_GROUPS.map((group, groupIndex) => {
+      const itemEntries = Object.entries(group.items);
+      const highestPossible = itemEntries.reduce((sum, [, item]) => sum + item.max, 0);
+      const totalScore = itemEntries.reduce((sum, [key]) => sum + (panelist.scores?.[key] ?? 0), 0);
+      const weightedScore = highestPossible > 0 ? (totalScore / highestPossible) * group.weight : 0;
+
+      return {
+        code: String.fromCharCode(65 + groupIndex),
+        title: group.title,
+        weight: group.weight,
+        totalScore,
+        highestPossible,
+        weightedScore
+      };
+    });
+
+    const weightedTotal = sections.reduce((sum, section) => sum + section.weightedScore, 0);
+
+    return {
+      panelistName: panelist.name,
+      sections,
+      weightedTotal
+    };
+  });
 }
 
 function mapAveragesToScorePayload(
@@ -570,7 +650,9 @@ export default function Evaluations() {
         const application = applications.find((app) => app.id === evaluation.applicationId);
         const vacancy = application ? jobVacancies.find((job) => job.id === application.vacancyId) : null;
         const vacancyTitle = vacancy?.positionTitle ?? "";
-        const isTeachingEval = /teacher|instructor|lecturer|professor|tutor/i.test(vacancyTitle);
+        const isTeachingByScores = hasTeachingScores(evaluation.panelists);
+        const isTeachingByTitle = /teacher|instructor|lecturer|professor|tutor/i.test(vacancyTitle);
+        const isTeachingEval = isTeachingByScores || (!evaluation.panelists?.length && isTeachingByTitle);
         return {
           ...evaluation,
           applicantName: application ? getApplicantName(application.applicantId) : "Unknown",
@@ -595,10 +677,11 @@ export default function Evaluations() {
     setIsExportingReport(true);
     try {
       const { jsPDF } = await import("jspdf");
-      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const isTeachingExport = Boolean(evaluation.isTeaching);
+      const pdf = new jsPDF({ orientation: isTeachingExport ? "landscape" : "portrait", unit: "pt", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 36;
+      const margin = isTeachingExport ? 28 : 36;
       const contentWidth = pageWidth - margin * 2;
       let cursorY = margin;
 
@@ -607,6 +690,13 @@ export default function Evaluations() {
         pdf.addPage();
         cursorY = margin;
       };
+
+      const teachingPanelistStats = isTeachingExport
+        ? calculateTeachingPanelistSectionScores(evaluation.panelists ?? [])
+        : [];
+      const teachingWeightedTotal = teachingPanelistStats.length
+        ? teachingPanelistStats.reduce((sum, panelist) => sum + panelist.weightedTotal, 0) / teachingPanelistStats.length
+        : 0;
 
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(18);
@@ -631,9 +721,17 @@ export default function Evaluations() {
       cursorY += 14;
       pdf.text(`Position: ${evaluation.positionTitle}`, margin + 10, cursorY + 6);
       cursorY += 14;
-      pdf.text(`Level: ${evaluation.displayLevel === "second_level" ? "Second Level" : "First Level"}`, margin + 10, cursorY + 6);
+      pdf.text(
+        `Assessment: ${evaluation.isTeaching ? "Teaching Demonstration Assessment" : evaluation.displayLevel === "second_level" ? "Second Level Administrative Position Assessment" : "First Level Administrative Position Assessment"}`,
+        margin + 10,
+        cursorY + 6
+      );
       cursorY += 14;
-      pdf.text(`Average Score: ${getAverageScore(evaluation.totalScore, evaluation.displayLevel).toFixed(2)}`, margin + 10, cursorY + 6);
+      pdf.text(
+        `Average Score: ${evaluation.isTeaching ? teachingWeightedTotal.toFixed(2) : getAverageScore(evaluation.totalScore, evaluation.displayLevel).toFixed(2)}`,
+        margin + 10,
+        cursorY + 6
+      );
       cursorY += 14;
       if (evaluation.remarks) {
         pdf.text(`Remarks: ${evaluation.remarks}`, margin + 10, cursorY + 6);
@@ -646,7 +744,21 @@ export default function Evaluations() {
       pdf.line(margin, cursorY, pageWidth - margin, cursorY);
       cursorY += 20;
 
-      const criteria = evaluation.displayLevel === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA;
+      const criteria = evaluation.isTeaching
+        ? TEACHING_CRITERIA
+        : evaluation.displayLevel === "first_level"
+          ? FIRST_LEVEL_CRITERIA
+          : SECOND_LEVEL_CRITERIA;
+
+      const teachingItems = isTeachingExport
+        ? TEACHING_GROUPS.flatMap((group, groupIndex) =>
+            Object.entries(group.items).map(([key, item], itemIndex) => ({
+              key,
+              name: item.name,
+              code: `${String.fromCharCode(65 + groupIndex)}${itemIndex + 1}`
+            }))
+          )
+        : [];
       
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(11);
@@ -654,28 +766,32 @@ export default function Evaluations() {
       pdf.text("Panelist Scores by Criterion", margin, cursorY + 8);
       cursorY += 16;
 
-      const headers = ["Panelist", ...Object.entries(criteria).map(([, data]) => data.name)];
+      const criterionKeys = isTeachingExport ? teachingItems.map((item) => item.key) : Object.keys(criteria);
+      const headers = isTeachingExport
+        ? ["Panelist", ...teachingItems.map((item) => item.code)]
+        : ["Panelist", ...Object.entries(criteria).map(([, data]) => data.name)];
       const rows = (evaluation.panelists ?? []).map((panelist) => [
         panelist.name,
-        ...Object.keys(criteria).map((key) => {
+        ...criterionKeys.map((key) => {
           const score = panelist.scores[key];
           return score !== undefined ? String(score) : "—";
         })
       ]);
 
-      const baseWidth = 90;
-      const criteriaCount = Object.keys(criteria).length;
-      const criteriaWidth = (contentWidth - baseWidth) / criteriaCount;
+      const baseWidth = isTeachingExport ? 120 : 90;
+      const criteriaCount = criterionKeys.length;
+      const criteriaWidth = Math.max(isTeachingExport ? 28 : 20, (contentWidth - baseWidth) / criteriaCount);
       const widths = [baseWidth, ...Array(criteriaCount).fill(criteriaWidth)];
       const normalizedWidths = widths.map((w) => w);
 
       const drawRow = (values: string[], isHeader = false) => {
         const cellLines = values.map((value, index) => pdf.splitTextToSize(value, normalizedWidths[index] - 8) as string[]);
-        const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * 10 + 6;
+        const lineHeight = isTeachingExport ? 9 : 10;
+        const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * lineHeight + 6;
         ensureSpace(rowHeight + 2);
 
         let startX = margin;
-        values.forEach((value, index) => {
+        values.forEach((_value, index) => {
           const width = normalizedWidths[index];
           if (isHeader) {
             pdf.setFillColor(192, 23, 47);
@@ -685,9 +801,16 @@ export default function Evaluations() {
           pdf.rect(startX, cursorY, width, rowHeight);
           pdf.setFont("helvetica", isHeader ? "bold" : "normal");
           pdf.setTextColor(isHeader ? 255 : 40);
-          pdf.setFontSize(isHeader ? 8.5 : 9);
+          pdf.setFontSize(isTeachingExport ? (isHeader ? 8 : 8.5) : (isHeader ? 8.5 : 9));
           cellLines[index].forEach((line, lineIndex) => {
-            pdf.text(line, startX + 4, cursorY + 11 + lineIndex * 10);
+            const isFirstColumn = index === 0;
+            if (isTeachingExport && !isFirstColumn) {
+              const textWidth = pdf.getTextWidth(line);
+              const centerX = startX + width / 2;
+              pdf.text(line, centerX - textWidth / 2, cursorY + 10 + lineIndex * lineHeight);
+            } else {
+              pdf.text(line, startX + 4, cursorY + 10 + lineIndex * lineHeight);
+            }
           });
           startX += width;
         });
@@ -709,73 +832,222 @@ export default function Evaluations() {
       pdf.line(margin, cursorY, pageWidth - margin, cursorY);
       cursorY += 22;
 
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(11);
-      pdf.setTextColor(40);
-      pdf.text("Score Averages by Criterion", margin, cursorY + 8);
-      cursorY += 16;
-
-      const averages = calculateAverages(evaluation.panelists ?? [], criteria);
-      const averageRows = Object.entries(criteria).map(([key, data]) => {
-        const avg = averages[`${key}Avg`];
-        return [data.name, avg !== undefined ? avg.toFixed(2) : "—"];
-      });
-
-      const avgWidths = [contentWidth * 0.7, contentWidth * 0.3];
-      
-      const drawAverageHeaderRow = () => {
-        const headers = ["Criterion", "Average Score"];
-        const rowHeight = 12;
-        ensureSpace(rowHeight + 2);
-
-        let startX = margin;
-        headers.forEach((header, index) => {
-          const width = avgWidths[index];
-          pdf.setFillColor(192, 23, 47);
-          pdf.rect(startX, cursorY, width, rowHeight, "F");
-          pdf.setDrawColor(120);
-          pdf.rect(startX, cursorY, width, rowHeight);
-          pdf.setFont("helvetica", "bold");
-          pdf.setTextColor(255);
-          pdf.setFontSize(9);
-          pdf.text(header, startX + 4, cursorY + 9);
-          startX += width;
-        });
+      if (!isTeachingExport) {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(11);
         pdf.setTextColor(40);
-        cursorY += rowHeight;
-      };
+        pdf.text("Score Averages by Criterion", margin, cursorY + 8);
+        cursorY += 16;
 
-      drawAverageHeaderRow();
-
-      const drawAverageRow = (label: string, value: string, rowIndex: number) => {
-        const cellLines = [
-          pdf.splitTextToSize(label, avgWidths[0] - 8) as string[],
-          pdf.splitTextToSize(value, avgWidths[1] - 8) as string[]
-        ];
-        const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * 10 + 6;
-        ensureSpace(rowHeight + 2);
-
-        let startX = margin;
-        [label, value].forEach((val, index) => {
-          const width = avgWidths[index];
-          if (rowIndex % 2 === 0) {
-            pdf.setFillColor(245, 245, 245);
-            pdf.rect(startX, cursorY, width, rowHeight, "F");
-          }
-          pdf.setDrawColor(200);
-          pdf.rect(startX, cursorY, width, rowHeight);
-          pdf.setFont("helvetica", index === 1 ? "bold" : "normal");
-          pdf.setTextColor(40);
-          pdf.setFontSize(9);
-          cellLines[index].forEach((line, lineIndex) => {
-            pdf.text(line, startX + 4, cursorY + 11 + lineIndex * 10);
-          });
-          startX += width;
+        const averages = calculateAverages(evaluation.panelists ?? [], criteria);
+        const averageHeaders = ["Criterion", "Average Score"];
+        const averageRows = Object.entries(criteria).map(([key, data]) => {
+          const avg = averages[`${key}Avg`];
+          return [data.name, avg !== undefined ? avg.toFixed(2) : "—"];
         });
-        cursorY += rowHeight;
-      };
 
-      averageRows.forEach(([label, value], index) => drawAverageRow(label, value, index));
+        const avgWidths = [contentWidth * 0.7, contentWidth * 0.3];
+
+        const drawAverageHeaderRow = () => {
+          const rowHeight = 14;
+          ensureSpace(rowHeight + 2);
+
+          let startX = margin;
+          averageHeaders.forEach((header, index) => {
+            const width = avgWidths[index];
+            pdf.setFillColor(192, 23, 47);
+            pdf.rect(startX, cursorY, width, rowHeight, "F");
+            pdf.setDrawColor(120);
+            pdf.rect(startX, cursorY, width, rowHeight);
+            pdf.setFont("helvetica", "bold");
+            pdf.setTextColor(255);
+            pdf.setFontSize(9);
+            pdf.text(header, startX + 4, cursorY + 9);
+            startX += width;
+          });
+          pdf.setTextColor(40);
+          cursorY += rowHeight;
+        };
+
+        drawAverageHeaderRow();
+
+        const drawAverageRow = (values: string[], rowIndex: number) => {
+          const cellLines = values.map((value, index) =>
+            pdf.splitTextToSize(value, avgWidths[index] - 8) as string[]
+          );
+          const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * 10 + 6;
+          ensureSpace(rowHeight + 2);
+
+          let startX = margin;
+          values.forEach((_val, index) => {
+            const width = avgWidths[index];
+            if (rowIndex % 2 === 0) {
+              pdf.setFillColor(245, 245, 245);
+              pdf.rect(startX, cursorY, width, rowHeight, "F");
+            }
+            pdf.setDrawColor(200);
+            pdf.rect(startX, cursorY, width, rowHeight);
+            pdf.setFont("helvetica", index === avgWidths.length - 1 ? "bold" : "normal");
+            pdf.setTextColor(40);
+            pdf.setFontSize(9);
+            cellLines[index].forEach((line, lineIndex) => {
+              pdf.text(line, startX + 4, cursorY + 11 + lineIndex * 10);
+            });
+            startX += width;
+          });
+          cursorY += rowHeight;
+        };
+
+        averageRows.forEach((row, index) => drawAverageRow(row, index));
+      }
+
+      if (isTeachingExport) {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(11);
+        pdf.setTextColor(40);
+        pdf.text("Panelist Section Totals (A/B/C/D)", margin, cursorY + 8);
+        cursorY += 16;
+
+        const panelistSectionHeaders = ["Panelist", "A Total", "B Total", "C Total", "D Total"];
+        const panelistSectionRows = teachingPanelistStats.map((panelist) => [
+          panelist.panelistName,
+          panelist.sections[0]?.totalScore.toFixed(2) ?? "0.00",
+          panelist.sections[1]?.totalScore.toFixed(2) ?? "0.00",
+          panelist.sections[2]?.totalScore.toFixed(2) ?? "0.00",
+          panelist.sections[3]?.totalScore.toFixed(2) ?? "0.00"
+        ]);
+
+        const panelistSectionWidths = [contentWidth * 0.3, contentWidth * 0.175, contentWidth * 0.175, contentWidth * 0.175, contentWidth * 0.175];
+
+        const drawPanelistSectionHeaderRow = () => {
+          const rowHeight = 14;
+          ensureSpace(rowHeight + 2);
+
+          let startX = margin;
+          panelistSectionHeaders.forEach((header, index) => {
+            const width = panelistSectionWidths[index];
+            pdf.setFillColor(192, 23, 47);
+            pdf.rect(startX, cursorY, width, rowHeight, "F");
+            pdf.setDrawColor(120);
+            pdf.rect(startX, cursorY, width, rowHeight);
+            pdf.setFont("helvetica", "bold");
+            pdf.setTextColor(255);
+            pdf.setFontSize(9);
+            pdf.text(header, startX + 4, cursorY + 9);
+            startX += width;
+          });
+          pdf.setTextColor(40);
+          cursorY += rowHeight;
+        };
+
+        drawPanelistSectionHeaderRow();
+
+        const drawPanelistSectionRow = (values: string[], rowIndex: number) => {
+          const cellLines = values.map((value, index) =>
+            pdf.splitTextToSize(value, panelistSectionWidths[index] - 8) as string[]
+          );
+          const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * 10 + 6;
+          ensureSpace(rowHeight + 2);
+
+          let startX = margin;
+          values.forEach((_val, index) => {
+            const width = panelistSectionWidths[index];
+            if (rowIndex % 2 === 0) {
+              pdf.setFillColor(245, 245, 245);
+              pdf.rect(startX, cursorY, width, rowHeight, "F");
+            }
+            pdf.setDrawColor(200);
+            pdf.rect(startX, cursorY, width, rowHeight);
+            pdf.setFont("helvetica", "normal");
+            pdf.setTextColor(40);
+            pdf.setFontSize(9);
+            cellLines[index].forEach((line, lineIndex) => {
+              pdf.text(line, startX + 4, cursorY + 11 + lineIndex * 10);
+            });
+            startX += width;
+          });
+          cursorY += rowHeight;
+        };
+
+        panelistSectionRows.forEach((row, index) => drawPanelistSectionRow(row, index));
+
+        cursorY += 16;
+        pdf.setDrawColor(180);
+        pdf.setLineWidth(0.5);
+        pdf.line(margin, cursorY, pageWidth - margin, cursorY);
+        cursorY += 22;
+
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(11);
+        pdf.setTextColor(40);
+        pdf.text("Panelist Weighted Percentage Summary", margin, cursorY + 8);
+        cursorY += 16;
+
+        const sectionHeaders = ["Panelist", "A (30%)", "B (30%)", "C (20%)", "D (20%)", "Total %"];
+        const sectionRows = teachingPanelistStats.map((panelist) => [
+          panelist.panelistName,
+          panelist.sections[0]?.weightedScore.toFixed(2) ?? "0.00",
+          panelist.sections[1]?.weightedScore.toFixed(2) ?? "0.00",
+          panelist.sections[2]?.weightedScore.toFixed(2) ?? "0.00",
+          panelist.sections[3]?.weightedScore.toFixed(2) ?? "0.00",
+          panelist.weightedTotal.toFixed(2)
+        ]);
+
+        const sectionWidths = [contentWidth * 0.3, contentWidth * 0.14, contentWidth * 0.14, contentWidth * 0.14, contentWidth * 0.14, contentWidth * 0.14];
+
+        const drawSectionHeaderRow = () => {
+          const rowHeight = 14;
+          ensureSpace(rowHeight + 2);
+
+          let startX = margin;
+          sectionHeaders.forEach((header, index) => {
+            const width = sectionWidths[index];
+            pdf.setFillColor(192, 23, 47);
+            pdf.rect(startX, cursorY, width, rowHeight, "F");
+            pdf.setDrawColor(120);
+            pdf.rect(startX, cursorY, width, rowHeight);
+            pdf.setFont("helvetica", "bold");
+            pdf.setTextColor(255);
+            pdf.setFontSize(9);
+            pdf.text(header, startX + 4, cursorY + 9);
+            startX += width;
+          });
+          pdf.setTextColor(40);
+          cursorY += rowHeight;
+        };
+
+        drawSectionHeaderRow();
+
+        const drawSectionRow = (values: string[], rowIndex: number) => {
+          const cellLines = values.map((value, index) =>
+            pdf.splitTextToSize(value, sectionWidths[index] - 8) as string[]
+          );
+          const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * 10 + 6;
+          ensureSpace(rowHeight + 2);
+
+          let startX = margin;
+          values.forEach((_val, index) => {
+            const width = sectionWidths[index];
+            if (rowIndex % 2 === 0) {
+              pdf.setFillColor(245, 245, 245);
+              pdf.rect(startX, cursorY, width, rowHeight, "F");
+            }
+            pdf.setDrawColor(200);
+            pdf.rect(startX, cursorY, width, rowHeight);
+            const isTotalRow = values[0] === "TOTAL";
+            pdf.setFont("helvetica", isTotalRow || index === values.length - 1 ? "bold" : "normal");
+            pdf.setTextColor(40);
+            pdf.setFontSize(9);
+            cellLines[index].forEach((line, lineIndex) => {
+              pdf.text(line, startX + 4, cursorY + 11 + lineIndex * 10);
+            });
+            startX += width;
+          });
+          cursorY += rowHeight;
+        };
+
+        sectionRows.forEach((row, index) => drawSectionRow(row, index));
+      }
 
       pdf.save(`evaluation-${evaluation.applicantName.replace(/\s+/g, "-")}.pdf`);
       toast({ title: "Success", description: "Evaluation exported as PDF successfully!" });

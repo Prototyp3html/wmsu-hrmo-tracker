@@ -427,38 +427,43 @@ export default function ApplicationTracking() {
                                       </div>
                                     )}
 
-                                    {/* Dynamic email template picker — shown only when there is a real choice */}
+                                    {/* Dynamic email template picker — only show when there are multiple choices */}
                                     {statusForm && (() => {
                                       const templates = getTemplatesForStatus(statusForm.status);
-                                      if (templates.length < 2) return null;
+                                      if (templates.length === 0) return null;
                                       const selectedTemplate = statusForm.selectedTemplateKey
                                         ? templates.find((t) => t.templateKey === statusForm.selectedTemplateKey) ?? null
                                         : null;
                                       const chosenTemplate = templates.length === 1 ? templates[0] : null;
                                       const templateForCheck = selectedTemplate ?? chosenTemplate;
                                       const needsDepartment = Boolean(templateForCheck?.body.includes("{{department}}"));
+                                      const activeTemplate = selectedTemplate ?? chosenTemplate;
 
                                       return (
                                         <div className={`space-y-2 rounded-md border p-3 ${statusForm.status === "Rejected" ? "bg-amber-50" : "bg-emerald-50"}`}>
-                                          <Label className="font-semibold">Email Template</Label>
-                                          <p className="text-xs text-muted-foreground">
-                                            Select the template to send for this status update.
-                                          </p>
-                                          <Select
-                                            value={statusForm.selectedTemplateKey}
-                                            onValueChange={(key) => handleTemplateSelect(key, applicantName, jobTitle, deptId)}
-                                          >
-                                            <SelectTrigger>
-                                              <SelectValue placeholder="Choose a template..." />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                              {templates.map((t) => (
-                                                <SelectItem key={t.templateKey} value={t.templateKey}>
-                                                  {t.templateName}
-                                                </SelectItem>
-                                              ))}
-                                            </SelectContent>
-                                          </Select>
+                                          {templates.length > 1 && (
+                                            <>
+                                              <Label className="font-semibold">Email Template</Label>
+                                              <p className="text-xs text-muted-foreground">
+                                                Select the template to send for this status update.
+                                              </p>
+                                              <Select
+                                                value={statusForm.selectedTemplateKey}
+                                                onValueChange={(key) => handleTemplateSelect(key, applicantName, jobTitle, deptId)}
+                                              >
+                                                <SelectTrigger>
+                                                  <SelectValue placeholder="Choose a template..." />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  {templates.map((t) => (
+                                                    <SelectItem key={t.templateKey} value={t.templateKey}>
+                                                      {t.templateName}
+                                                    </SelectItem>
+                                                  ))}
+                                                </SelectContent>
+                                              </Select>
+                                            </>
+                                          )}
 
                                           {needsDepartment && (
                                             <div className="mt-2">
@@ -469,7 +474,9 @@ export default function ApplicationTracking() {
                                                   setStatusForm((prev) => {
                                                     if (!prev) return prev;
                                                     const newDeptId = val === "__vacancy__" ? undefined : (val || undefined);
-                                                    const template = emailTemplates.find((t) => t.templateKey === prev.selectedTemplateKey) || null;
+                                                    const template = emailTemplates.find((t) => t.templateKey === prev.selectedTemplateKey)
+                                                      || templates.find((t) => t.templateKey === prev.selectedTemplateKey)
+                                                      || activeTemplate;
                                                     const newText = template
                                                       ? renderTemplate(template, applicantName, jobTitle, { department: getDepartmentName(newDeptId ?? deptId) })
                                                       : prev.emailTemplateText;
@@ -490,12 +497,12 @@ export default function ApplicationTracking() {
                                             </div>
                                           )}
 
-                                          {statusForm.selectedTemplateKey && (
+                                          {activeTemplate && (templates.length === 1 || statusForm.selectedTemplateKey) && (
                                             <div className="space-y-1 mt-2">
                                               <Label className="font-medium text-sm">Preview / Edit</Label>
                                               <Textarea
                                                 className="min-h-[220px]"
-                                                value={statusForm.emailTemplateText}
+                                                value={statusForm.emailTemplateText || renderTemplate(activeTemplate, applicantName, jobTitle, { department: getDepartmentName(statusForm.departmentOverride ?? deptId) })}
                                                 onChange={(e) => setStatusForm((prev) => prev ? ({ ...prev, emailTemplateText: e.target.value }) : prev)}
                                               />
                                             </div>

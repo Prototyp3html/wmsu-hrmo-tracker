@@ -468,6 +468,28 @@ function renderTextBlockHtml(text: string) {
     .join("");
 }
 
+type InlineEmailImage = {
+  cid: string;
+  filename: string;
+  path: string;
+};
+
+function getWmsuEmailImages() {
+  const imageSpecs: InlineEmailImage[] = [
+    { cid: "wmsu_seal", filename: "wmsu-seal.png", path: path.resolve(__dirname, "../../frontend/public/wmsu-seal.png") },
+    { cid: "qs_stars", filename: "qs stars.png", path: path.resolve(__dirname, "../../frontend/public/qs stars.png") },
+    { cid: "qms_certification", filename: "QMS Certification Mark with PAB.jpg", path: path.resolve(__dirname, "../../frontend/public/QMS Certification Mark with PAB.jpg") },
+    { cid: "wuri", filename: "wuri.png", path: path.resolve(__dirname, "../../frontend/public/wuri.png") },
+    { cid: "gced", filename: "gced.png", path: path.resolve(__dirname, "../../frontend/public/gced.png") }
+  ];
+
+  return imageSpecs.filter((image) => fs.existsSync(image.path));
+}
+
+function buildInlineImageTag(image: InlineEmailImage, width: number, height: number) {
+  return `<img src="cid:${image.cid}" alt="${escapeHtml(image.filename)}" width="${width}" height="${height}" style="display:block;border:0;object-fit:contain;"/>`;
+}
+
 function buildWmsuEmailShell(options: {
   title: string;
   subtitle: string;
@@ -491,6 +513,21 @@ function buildWmsuEmailShell(options: {
   const logoUrl = _frontendBase ? `${_frontendBase}/wmsu-seal.png` : undefined;
   const logoLocalPath = path.resolve(__dirname, "../../frontend/public/wmsu-seal.png");
   const useInlineLogo = fs.existsSync(logoLocalPath);
+  const emailImages = getWmsuEmailImages();
+  const imageByCid = new Map(emailImages.map((image) => [image.cid, image]));
+  const headerSealStrip = ["qs_stars", "qms_certification", "wuri", "gced"]
+    .map((cid) => imageByCid.get(cid))
+    .filter((image): image is InlineEmailImage => Boolean(image))
+    .map((image, index) => {
+      const size = [
+        { width: 44, height: 24 },
+        { width: 54, height: 24 },
+        { width: 54, height: 24 },
+        { width: 40, height: 24 }
+      ][index] ?? { width: 48, height: 24 };
+      return `<td style="padding-left:10px;vertical-align:middle;">${buildInlineImageTag(image, size.width, size.height)}</td>`;
+    })
+    .join("");
 
   return `
     <!doctype html>
@@ -514,6 +551,7 @@ function buildWmsuEmailShell(options: {
                     <p style="margin:0;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#7f1d1d;font-weight:700;">Western Mindanao State University</p>
                     <p style="margin:6px 0 0;font-size:16px;font-weight:700;color:#111827;">Human Resource Management Office</p>
                   </td>
+                  <td style="vertical-align:middle;text-align:right;white-space:nowrap;">${headerSealStrip ? `<table role="presentation" style="border-collapse:collapse;margin-left:auto;"><tr>${headerSealStrip}</tr></table>` : ""}</td>
                 </tr>
               </table>
             </div>
@@ -646,6 +684,7 @@ async function sendApplicationStatusEmail(payload: {
   remarks?: string;
   rejectionSubtype?: RejectionSubtype;
   selectedTemplateKey?: string;
+  emailTemplateText?: string;
   rejectionTemplateText?: string;
   qualificationTemplateText?: string;
   workflow: {
@@ -672,6 +711,18 @@ async function sendApplicationStatusEmail(payload: {
     : null;
 
   if (selectedTemplate) {
+    subject = selectedTemplate.subject;
+  }
+
+  if (payload.emailTemplateText?.trim()) {
+    body = renderTemplateText(payload.emailTemplateText.trim(), {
+      applicantName: payload.applicantName,
+      jobTitle: payload.jobTitle,
+      department: payload.department ?? "",
+      date: formattedDate,
+      today: formattedDate
+    });
+  } else if (selectedTemplate) {
     subject = selectedTemplate.subject;
     body = renderTemplateText(selectedTemplate.body, {
       applicantName: payload.applicantName,
@@ -718,7 +769,6 @@ async function sendApplicationStatusEmail(payload: {
     summaryRows: [
       { label: "Applicant", value: payload.applicantName },
       { label: "Position", value: payload.jobTitle },
-      { label: "Status", value: payload.status },
       { label: "Date", value: formattedDate },
     ],
     contentHtml: `
@@ -751,11 +801,11 @@ async function sendApplicationStatusEmail(payload: {
     }
   });
 
-  const logoLocalPath = path.resolve(__dirname, "../../frontend/public/wmsu-seal.png");
-  const attachments: Array<any> = [];
-  if (fs.existsSync(logoLocalPath)) {
-    attachments.push({ filename: "wmsu-seal.png", path: logoLocalPath, cid: "wmsu_seal" });
-  }
+  const attachments = getWmsuEmailImages().map((image) => ({
+    filename: image.filename,
+    path: image.path,
+    cid: image.cid
+  }));
 
   const info = await transporter.sendMail({
     from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
@@ -828,11 +878,11 @@ async function sendPasswordResetEmail(payload: {
     }
   });
 
-  const logoLocalPath2 = path.resolve(__dirname, "../../frontend/public/wmsu-seal.png");
-  const attachments2: Array<any> = [];
-  if (fs.existsSync(logoLocalPath2)) {
-    attachments2.push({ filename: "wmsu-seal.png", path: logoLocalPath2, cid: "wmsu_seal" });
-  }
+  const attachments2 = getWmsuEmailImages().map((image) => ({
+    filename: image.filename,
+    path: image.path,
+    cid: image.cid
+  }));
 
   const info = await transporter.sendMail({
     from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
@@ -2781,6 +2831,7 @@ app.patch("/api/applications/:id/status", requireAuth, asyncHandler(async (req: 
     selectedTemplateKey,
     rejectionTemplateText,
     qualificationTemplateText,
+    emailTemplateText,
     departmentId
   } = req.body as {
     status?: string;
@@ -2798,6 +2849,7 @@ app.patch("/api/applications/:id/status", requireAuth, asyncHandler(async (req: 
     notifyApplicant?: boolean;
     rejectionSubtype?: RejectionSubtype;
     selectedTemplateKey?: string;
+    emailTemplateText?: string;
     rejectionTemplateText?: string;
     qualificationTemplateText?: string;
     departmentId?: string;
@@ -2929,6 +2981,7 @@ app.patch("/api/applications/:id/status", requireAuth, asyncHandler(async (req: 
         remarks,
         rejectionSubtype,
         selectedTemplateKey,
+        emailTemplateText,
         rejectionTemplateText,
         qualificationTemplateText,
         workflow: {
