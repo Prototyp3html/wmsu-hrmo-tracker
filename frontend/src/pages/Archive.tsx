@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { fetchApplicants, fetchApplications, fetchEmailTemplates, fetchJobs, updateEmailTemplate, fetchArchivedVacancies, restoreArchivedVacancy, getArchiveDurationSetting, updateArchiveDurationSetting, createEmailTemplate, deleteEmailTemplate } from "@/lib/api";
+import { fetchApplicants, fetchApplications, fetchEmailTemplates, fetchJobs, updateEmailTemplate, fetchArchivedVacancies, restoreArchivedVacancy, getArchiveDurationSetting, updateArchiveDurationSetting, createEmailTemplate, deleteEmailTemplate, fetchLetterCodes, fetchLetterContent } from "@/lib/api";
 import type { EmailTemplate } from "@/lib/types";
 import { Search, Pencil, Plus, Trash2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -36,6 +36,90 @@ const APPLICATION_STATUSES = [
   "Rejected"
 ] as const;
 
+type RejectionLetterType = "not_qualified" | "non_teaching" | "teaching";
+
+function detectRejectionLetterType(templateName: string): RejectionLetterType | "" {
+  const name = templateName.toLowerCase();
+  if (!name.trim()) return "";
+  if (name.includes("non-teaching")) return "non_teaching";
+  if (name.includes("teaching")) return "teaching";
+  if (name.includes("not qualified")) return "not_qualified";
+  return "";
+}
+
+function buildLetterFooter(code: string, effectiveDate: string): string {
+  // format effectiveDate as Day-Mon-Year if it's a Date or string
+  const fmt = (d: string) => {
+    try {
+      const parsed = new Date(d);
+      if (!isNaN(parsed.getTime())) {
+        const day = parsed.getDate().toString().padStart(2, "0");
+        const month = parsed.toLocaleString("en-US", { month: "short" });
+        const year = parsed.getFullYear();
+        return `${day}-${month}-${year}`;
+      }
+    } catch (e) {}
+    return d;
+  };
+  return `${code}\nEffective date: ${fmt(effectiveDate)}`;
+}
+
+function removeKnownLetterFooter(text: string, knownFooters: string[]) {
+  let normalized = text;
+  knownFooters.forEach((footer) => {
+    if (normalized.endsWith(`\n\n${footer}`)) {
+      normalized = normalized.slice(0, -(`\n\n${footer}`).length);
+    } else if (normalized.endsWith(footer)) {
+      normalized = normalized.slice(0, -footer.length);
+    }
+  });
+  return normalized.trimEnd();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function deriveLetterDisplayTitle(filename: string, code: string, fallbackLabel?: string) {
+  const raw = String(filename || "").replace(/\.docx?$/i, "").trim();
+  const codePattern = escapeRegExp(code);
+  const hasWrappedTitle = /\bWMSU[-\s]*HRMO[-\s]*LET[-\s]*[A-Z0-9.]+\s*\(/i.test(raw) || new RegExp(`^\\s*${codePattern}\\s*\\(`, "i").test(raw);
+  let title = raw
+    .replace(/^\s*WMSU[-\s]*HRMO[-\s]*LET[-\s]*[A-Z0-9.]+\s*/i, "")
+    .replace(new RegExp(`^\\s*${codePattern}\\s*[-_:()\\[\\]]*\\s*`, "i"), "")
+    .replace(/^[-_:()\[\]\s]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // If the DOCX title was wrapped like "(Title)" and the opening parenthesis was stripped,
+  // remove the leftover closing parenthesis so 002.02 and 003.02 don't end with ")".
+  if (hasWrappedTitle && title.endsWith(")") && !title.includes("(")) {
+    title = title.slice(0, -1).trimEnd();
+  }
+
+  if (!title && fallbackLabel) title = fallbackLabel;
+  if (!title) title = code;
+  return title;
+}
+
+function applyLetterFooter(body: string, code: string | "", effectiveDate: string | "", knownFooters: string[]) {
+  let withoutFooter = removeKnownLetterFooter(body, knownFooters);
+  if (!code) return withoutFooter;
+  // ensure we don't duplicate existing code lines inside the body
+  // remove any existing occurrences of the code string or "Effective date:" lines
+  const codeEsc = code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  withoutFooter = withoutFooter.replace(new RegExp(`(${codeEsc})(\s|\n|\r)*`, "g"), "");
+  withoutFooter = withoutFooter.replace(/Effective date:\s*[^\n\r]*/gi, "");
+
+  const today = new Date();
+  const todayStr = `${today.getDate().toString().padStart(2, "0")}-${today.toLocaleString("en-US", { month: "short" })}-${today.getFullYear()}`;
+  // Always use current date for Effective date in appended footer
+  const eff = todayStr;
+  const footer = buildLetterFooter(code, eff);
+  if (!withoutFooter.trim()) return footer;
+  return `${withoutFooter}\n\n${footer}`;
+}
+
 // Available placeholders users can insert
 const AVAILABLE_PLACEHOLDERS = [
   { label: "Applicant Name", value: "{{applicantName}}" },
@@ -51,7 +135,7 @@ const AVAILABLE_PLACEHOLDERS = [
 ] as const;
 
 // Placeholders are optional, but once inserted they should not be deleted accidentally.
-const PROTECTED_PLACEHOLDERS = AVAILABLE_PLACEHOLDERS.map((placeholder) => placeholder.value);
+let PROTECTED_PLACEHOLDERS = AVAILABLE_PLACEHOLDERS.map((placeholder) => placeholder.value);
 
 const DEFAULT_TEMPLATE_KEYS = new Set([
   "not_qualified",
@@ -124,6 +208,7 @@ interface TemplateFormState {
   subject: string;
   body: string;
   linkedStatus: string;
+  rejectionLetterType: string; // stores selected letter code (e.g. WMSU-HRMO-LET-004A.00)
 }
 
 interface TemplateEditorProps {
@@ -131,10 +216,245 @@ interface TemplateEditorProps {
   setForm: (f: TemplateFormState) => void;
   isNew?: boolean;
   bodyRef: React.RefObject<HTMLTextAreaElement>;
+  rejectionMeta?: Record<RejectionLetterType, { label: string; code: string; effectiveDate: string }>;
+  knownFooters?: string[];
+  letterCodes?: Array<{ code: string; filename: string; effectiveDate?: string }>;
 }
 
-function TemplateEditor({ form, setForm, isNew, bodyRef }: TemplateEditorProps) {
+function TemplateEditor({ form, setForm, isNew, bodyRef, rejectionMeta, knownFooters, letterCodes }: TemplateEditorProps) {
   const { toast } = useToast();
+  const detectCodeFromName = (name: string) => {
+    const lower = name.toLowerCase();
+    if (!letterCodes || letterCodes.length === 0) return "";
+    // try filename keywords
+    for (const c of letterCodes) {
+      const fname = (c.filename || "").toLowerCase();
+      if (lower.includes("non-teach") || lower.includes("non teaching") || lower.includes("non-teaching")) {
+        if (fname.includes("non-teach") || fname.includes("non teaching") || fname.includes("non-teaching") || /004a?/i.test(c.code)) return c.code;
+      }
+      if (lower.includes("teaching") || lower.includes("teach")) {
+        if (fname.includes("teaching") || fname.includes("teach") || /004\./i.test(c.code) || /007/.test(c.code)) return c.code;
+      }
+      if (lower.includes("not qual") || lower.includes("not qualified")) {
+        if (fname.includes("not qual") || fname.includes("not qualified") || /003/.test(c.code)) return c.code;
+      }
+    }
+    // fallback by code patterns
+    for (const c of letterCodes) {
+      if (/003/.test(c.code) && lower.includes("not")) return c.code;
+    }
+    return "";
+  };
+
+  const updateForRejectionType = (nextCode: string) => {
+    const shouldApply = isNew && form.linkedStatus === "Rejected";
+    const meta = nextCode ? letterCodes?.find((l) => l.code === nextCode) : undefined;
+    const fallbackLabel = meta?.code ? Object.values(rejectionMeta || {}).find((entry) => entry.code === meta.code)?.label : undefined;
+    const displayTitle = deriveLetterDisplayTitle(meta?.filename ?? nextCode, nextCode, fallbackLabel);
+
+    // Apply the name/subject immediately so the form doesn't appear blank while the DOCX loads.
+    if (shouldApply) {
+      setForm({
+        ...form,
+        templateName: displayTitle,
+        subject: displayTitle,
+        rejectionLetterType: nextCode,
+        body: form.body
+      });
+    }
+
+    // fetch the full text for the letter and insert it as the body
+        (async () => {
+      try {
+        const content = nextCode ? await fetchLetterContent(nextCode) : null;
+        let text = content?.text ?? meta?.code ?? "";
+
+        // Trim leading address/preamble so the inserted body starts at the greeting (Dear...)
+        const trimToGreeting = (src: string) => {
+          if (!src) return src;
+          const L = src.split(/\r?\n/);
+          // find first line that starts with 'Dear' (case-insensitive)
+          let greet = -1;
+          for (let i = 0; i < L.length; i++) {
+            if (/^\s*dear\b/i.test(L[i])) { greet = i; break; }
+          }
+          if (greet >= 0) {
+            return L.slice(greet).join('\n');
+          }
+          // otherwise remove leading Date: or empty/name/job/department lines until we hit an empty line or text that looks like a paragraph
+          let start = 0;
+          while (start < L.length) {
+            const line = (L[start] || '').trim();
+            if (!line) { start++; continue; }
+            if (/^date\s*:/i.test(line)) { start++; continue; }
+            // a single-line name or job or department likely part of address - skip first up to 4 consecutive short lines
+            if (start < 6 && /^\w[\w\s.,'-]{0,60}$/.test(line) && line.length < 60) { start++; continue; }
+            break;
+          }
+          return L.slice(start).join('\n');
+        };
+
+        text = trimToGreeting(text);
+        // Replace bracketed placeholder texts (from DOCX) with system placeholders
+        const bracketMappings: Array<{ pattern: RegExp; replace: string }> = [
+          { pattern: /\[\s*Name of Position applied for\s*\]/ig, replace: "{{jobTitle}}" },
+          { pattern: /\[\s*Position applied for\s*\]/ig, replace: "{{jobTitle}}" },
+          { pattern: /\[\s*Name of Position\s*\]/ig, replace: "{{jobTitle}}" }
+        ];
+        for (const m of bracketMappings) {
+          text = text.replace(m.pattern, m.replace);
+        }
+
+        // Replace runs of underscores with placeholders based on nearby labels
+        function fillUnderscoresWithPlaceholders(src: string) {
+          if (!src) return src;
+          const lines = src.split(/\r?\n/);
+          const placeholderFallback = ["{{applicantName}}", "{{jobTitle}}", "{{department}}", "{{date}}", "{{today}}", "{{signature}}"];
+          let fallbackIndex = 0;
+
+          const labelToPlaceholder = (label: string) => {
+            const l = label.toLowerCase();
+            // greetings and title cues -> applicant name
+            if (l.includes("dear") || l.includes("mr") || l.includes("mrs") || l.includes("ms") || l.includes("sir") || l.includes("maam") || l.includes("madam")) return "{{applicantName}}";
+            if (l.includes("applicant") || l.includes("name") || l.includes("recipient")) return "{{applicantName}}";
+            if (l.includes("position") || l.includes("vacancy") || l.includes("post") || l.includes("job")) return "{{jobTitle}}";
+            if (l.includes("department")) return "{{department}}";
+            if (l.includes("date") || l.includes("effective")) return "{{date}}";
+            if (l.includes("signature") || l.includes("signed") || l.includes("oath")) return "{{signature}}";
+            return "";
+          };
+
+          // track which label line indices we've consumed to avoid mapping multiple underscore lines to the same label
+          const consumedLabelLines = new Set<number>();
+
+          // Detect consecutive underscore-only lines at the top (address block). If there are multiple, skip replacing them.
+          const topUnderscoreIndices = new Set<number>();
+          for (let t = 0; t < Math.min(8, lines.length); t++) {
+            const l = (lines[t] || "").trim();
+            if (/^_+$/.test(l)) topUnderscoreIndices.add(t);
+            else break;
+          }
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (!(/_{3,}/.test(line))) continue;
+
+            // if this line is one of the top address underscores, skip replacement
+            if (topUnderscoreIndices.has(i)) continue;
+
+            // if the same line mentions 'referred' we should not replace the underline (manual input)
+            if (/\breferred\b/i.test(line)) continue;
+
+            // look for a label on the same line before underscores
+            const before = line.split(/_{3,}/)[0] || "";
+            let placeholder = "";
+            let consumedLabelIndex: number | null = null;
+
+            if (before.trim()) {
+              placeholder = labelToPlaceholder(before);
+              // no index for same-line label
+            }
+
+            // if not found, look at previous non-empty lines for a label (prefer the nearest)
+            if (!placeholder) {
+              for (let j = i - 1; j >= Math.max(0, i - 6); j--) {
+                let prev = lines[j].trim();
+                if (!prev) continue;
+                // skip lines that look like already-inserted placeholders (avoid chaining)
+                if (/\{\{.*\}\}/.test(prev)) continue;
+                const p = labelToPlaceholder(prev);
+                if (p) {
+                  // only use this prev label if we haven't already consumed it for an earlier underscore
+                  if (!consumedLabelLines.has(j)) {
+                    placeholder = p;
+                    consumedLabelIndex = j;
+                    break;
+                  }
+                }
+              }
+            }
+
+            // if still not found, use fallback sequence
+            if (!placeholder) {
+              placeholder = placeholderFallback[fallbackIndex] || "{{value}}";
+              fallbackIndex = Math.min(fallbackIndex + 1, placeholderFallback.length - 1);
+            }
+            // If the selected placeholder is a date but the same-line before text looks like a greeting/title,
+            // prefer applicantName (avoid mapping 'Dear ___' to a date)
+            if (placeholder === "{{date}}") {
+              const beforeLow = before.toLowerCase();
+              if (beforeLow.includes("dear") || /\b(mr|ms|mrs|sir|madam|miss)\b/.test(beforeLow)) {
+                placeholder = "{{applicantName}}";
+              }
+              // also if the nearest consumed label line (if any) looks like a greeting, switch
+              if (!placeholder && consumedLabelIndex !== null) {
+                const consumedText = (lines[consumedLabelIndex] || "").toLowerCase();
+                if (consumedText.includes("dear") || /\b(mr|ms|mrs|sir|madam|miss)\b/.test(consumedText)) {
+                  placeholder = "{{applicantName}}";
+                }
+              }
+            }
+
+            // Do not replace underscore runs that are intended for manual input after signature or specific phrases.
+            // If a prior non-empty line (up to 3 lines above) contains signature closers or 'referred to' phrasing, skip replacement.
+            const priorLinesCheck = (n: number) => {
+              for (let k = 1; k <= n; k++) {
+                const idx = i - k;
+                if (idx < 0) break;
+                const txt = (lines[idx] || "").toLowerCase();
+                if (!txt.trim()) continue;
+                if (/(very truly yours|yours truly|sincerely|faithfully|respectfully|very truly yours,)/.test(txt)) return true;
+                if (txt.includes("referred to") || txt.includes("referred")) return true;
+              }
+              return false;
+            };
+
+            // if prior lines indicate signature or referred phrase, skip replacing underscores so user can input manually
+            if (priorLinesCheck(3)) {
+              continue; // leave the underscore run as-is
+            }
+
+            // mark consumed label index
+            if (consumedLabelIndex !== null) consumedLabelLines.add(consumedLabelIndex);
+
+            // replace the underscore run(s) on this line with the placeholder
+            lines[i] = line.replace(/_{3,}/g, placeholder);
+          }
+
+          return lines.join("\n");
+        }
+
+        text = fillUnderscoresWithPlaceholders(text);
+
+        // If applicantName placeholder appears directly after a signature closer, replace it with an underline
+        const signaturePlaceholderRegex = /(very truly yours|yours truly|respectfully|sincerely|faithfully)[\.,]?\s*\n\s*\{\{applicantName\}\}/i;
+        if (signaturePlaceholderRegex.test(text)) {
+          text = text.replace(signaturePlaceholderRegex, (m, p1) => `${p1}\n\n______________________________`);
+        }
+        const eff = content?.effectiveDate ?? meta?.effectiveDate ?? new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+        const newBody = shouldApply
+          ? applyLetterFooter(text, content?.code ?? meta?.code ?? "", eff, knownFooters ?? [])
+          : form.body;
+
+        setForm({
+          ...form,
+          templateName: shouldApply ? displayTitle : form.templateName,
+          subject: shouldApply ? displayTitle : form.subject,
+          rejectionLetterType: nextCode,
+          body: newBody
+        });
+      } catch (e) {
+        // fallback: set code-only footer
+        setForm({
+          ...form,
+          templateName: shouldApply ? displayTitle : form.templateName,
+          subject: shouldApply ? displayTitle : form.subject,
+          rejectionLetterType: nextCode,
+          body: shouldApply ? applyLetterFooter(form.body, meta?.code ?? "", meta?.effectiveDate ?? "", knownFooters ?? []) : form.body
+        });
+      }
+    })();
+  };
 
   const insertPlaceholder = (placeholder: string) => {
     const ta = bodyRef.current;
@@ -179,11 +499,21 @@ function TemplateEditor({ form, setForm, isNew, bodyRef }: TemplateEditorProps) 
           <Label>Linked to Status <span className="text-destructive">*</span></Label>
           <Select
             value={form.linkedStatus}
-            onValueChange={(val) =>
-              setForm({ ...form, linkedStatus: val, templateGroup: groupFromStatus(val) })
-            }
+            onValueChange={(val) => {
+              const detectedCode = val === "Rejected" ? (typeof (detectCodeFromName) === "function" ? detectCodeFromName(form.templateName) : "") : "";
+              const meta = detectedCode ? (letterCodes || []).find((l) => l.code === detectedCode) : undefined;
+              setForm({
+                ...form,
+                linkedStatus: val,
+                templateGroup: groupFromStatus(val),
+                rejectionLetterType: detectedCode,
+                body: val === "Rejected"
+                  ? applyLetterFooter(form.body, meta?.code ?? "", meta?.effectiveDate ?? "", knownFooters ?? [])
+                  : removeKnownLetterFooter(form.body, knownFooters ?? [])
+              });
+            }}
           >
-            <SelectTrigger>
+                  <SelectTrigger>
               <SelectValue placeholder="Pick an application status" />
             </SelectTrigger>
             <SelectContent>
@@ -195,6 +525,34 @@ function TemplateEditor({ form, setForm, isNew, bodyRef }: TemplateEditorProps) 
           <p className="text-xs text-muted-foreground">
             This template will be used when an applicant's status changes to the selected stage.
           </p>
+
+          {form.linkedStatus === "Rejected" && (
+            <div className="space-y-2 pt-2">
+              <Label>Rejection Letter Type <span className="text-destructive">*</span></Label>
+              <Label>Rejection Letter Type <span className="text-destructive">*</span></Label>
+              <Select value={form.rejectionLetterType} onValueChange={(value) => updateForRejectionType(value as string)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Auto-detect from template name or pick one" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(letterCodes && letterCodes.length > 0)
+                    ? letterCodes.map((c) => (
+                        <SelectItem key={c.code} value={c.code}>
+                          {c.filename}
+                        </SelectItem>
+                      ))
+                    : (Object.entries(rejectionMeta) as Array<[RejectionLetterType, { label: string; code: string; effectiveDate: string }]>).map(([type, meta]) => (
+                        <SelectItem key={type} value={meta.code || type}>
+                          {meta.label}
+                        </SelectItem>
+                      ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                The letter code and effective date footer is automatically appended at the bottom.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -202,7 +560,22 @@ function TemplateEditor({ form, setForm, isNew, bodyRef }: TemplateEditorProps) 
         <Label>Template Name <span className="text-destructive">*</span></Label>
         <Input
           value={form.templateName}
-          onChange={(e) => setForm({ ...form, templateName: e.target.value })}
+            onChange={(e) => {
+              const nextName = e.target.value;
+              if (isNew && form.linkedStatus === "Rejected") {
+                const detectedCode = typeof (detectCodeFromName) === "function" ? detectCodeFromName(nextName) : "";
+                const chosen = detectedCode || form.rejectionLetterType;
+                const meta = chosen ? (letterCodes || []).find((l) => l.code === chosen) : undefined;
+                setForm({
+                  ...form,
+                  templateName: nextName,
+                  rejectionLetterType: detectedCode || form.rejectionLetterType,
+                  body: applyLetterFooter(form.body, meta?.code ?? "", meta?.effectiveDate ?? "", knownFooters ?? [])
+                });
+                return;
+              }
+              setForm({ ...form, templateName: nextName });
+            }}
           placeholder="e.g. Interview Invitation"
         />
       </div>
@@ -270,7 +643,8 @@ export default function Archive() {
     templateGroup: "rejection",
     subject: "",
     body: "",
-    linkedStatus: ""
+    linkedStatus: "",
+    rejectionLetterType: ""
   });
 
   // Add template dialog
@@ -280,7 +654,8 @@ export default function Archive() {
     templateGroup: "qualification",
     subject: "",
     body: "",
-    linkedStatus: ""
+    linkedStatus: "",
+    rejectionLetterType: ""
   });
 
   // Delete template confirmation
@@ -293,6 +668,7 @@ export default function Archive() {
   const { data: applications = [], isLoading: loadingApplications } = useQuery({ queryKey: ["applications"], queryFn: fetchApplications });
   const { data: jobs = [], isLoading: loadingJobs } = useQuery({ queryKey: ["jobs"], queryFn: fetchJobs });
   const { data: emailTemplates = [], isLoading: loadingTemplates } = useQuery({ queryKey: ["email-templates"], queryFn: fetchEmailTemplates });
+  const { data: letterCodes = [], isLoading: loadingLetterCodes } = useQuery({ queryKey: ["letter-codes"], queryFn: fetchLetterCodes });
   const { data: archivedVacancies = [], isLoading: loadingArchivedVacancies } = useQuery({ queryKey: ["archived-vacancies"], queryFn: fetchArchivedVacancies });
   const { data: archiveDurationData } = useQuery({ queryKey: ["archive-duration"], queryFn: getArchiveDurationSetting });
 
@@ -344,7 +720,7 @@ export default function Archive() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["email-templates"] });
       setShowAddTemplate(false);
-      setAddForm({ templateName: "", templateGroup: "qualification", subject: "", body: "", linkedStatus: "" });
+      setAddForm({ templateName: "", templateGroup: "qualification", subject: "", body: "", linkedStatus: "", rejectionLetterType: "" });
       toast({ title: "Template created", description: "New email template was added." });
     },
     onError: (error) => {
@@ -422,6 +798,51 @@ export default function Archive() {
     })
   }), [emailTemplates]);
 
+  // Build rejection mapping from scanned letter files (fallback to today's date when missing)
+  const rejectionMeta = useMemo(() => {
+    const today = new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+    const base: Record<RejectionLetterType, { label: string; code: string; effectiveDate: string }> = {
+      not_qualified: { label: "Letter for Not Qualified Applicants", code: "", effectiveDate: today },
+      non_teaching: { label: "Letter of Regret (For Interviewed Non-Teaching Applicants)", code: "", effectiveDate: today },
+      teaching: { label: "Letter of Regret (For Interviewed Teaching Applicants)", code: "", effectiveDate: today }
+    };
+
+    (letterCodes || []).forEach((c) => {
+      const fname = String(c.filename).toLowerCase();
+      if (fname.includes("non-teach") || fname.includes("non teaching") || fname.includes("non-teaching")) {
+        base.non_teaching.code = c.code;
+        base.non_teaching.effectiveDate = c.effectiveDate ?? base.non_teaching.effectiveDate;
+      } else if (fname.includes("teach") || fname.includes("teaching")) {
+        base.teaching.code = c.code;
+        base.teaching.effectiveDate = c.effectiveDate ?? base.teaching.effectiveDate;
+      } else if (fname.includes("not qual") || fname.includes("not qualified")) {
+        base.not_qualified.code = c.code;
+        base.not_qualified.effectiveDate = c.effectiveDate ?? base.not_qualified.effectiveDate;
+      } else {
+        // fallback by code patterns
+        if (c.code.includes("003")) {
+          base.not_qualified.code = c.code;
+          base.not_qualified.effectiveDate = c.effectiveDate ?? base.not_qualified.effectiveDate;
+        }
+        if (/004a?/i.test(c.code)) {
+          base.non_teaching.code = c.code;
+          base.non_teaching.effectiveDate = c.effectiveDate ?? base.non_teaching.effectiveDate;
+        }
+        if (/007/.test(c.code)) {
+          // 007 usually published instructor regret - map to teaching
+          base.teaching.code = c.code;
+          base.teaching.effectiveDate = c.effectiveDate ?? base.teaching.effectiveDate;
+        }
+      }
+    });
+
+    return base;
+  }, [letterCodes]);
+
+  const knownFooters = useMemo(() => {
+    return (Object.values(rejectionMeta) || []).filter((m) => m.code).map((m) => `${m.code}\nEffective date: ${m.effectiveDate}`);
+  }, [rejectionMeta]);
+
   const bodyPreview = (body: string) => body.replace(/\s+/g, " ").trim().slice(0, 200);
 
   const openTemplateEditor = (template: EmailTemplate) => {
@@ -431,7 +852,8 @@ export default function Archive() {
       templateGroup: template.templateGroup,
       subject: template.subject,
       body: template.body,
-      linkedStatus: template.linkedStatus ?? (template.templateGroup === "rejection" ? "Rejected" : "Approved")
+      linkedStatus: template.linkedStatus ?? (template.templateGroup === "rejection" ? "Rejected" : "Approved"),
+      rejectionLetterType: ""
     });
   };
 
@@ -440,6 +862,9 @@ export default function Archive() {
     if (!form.subject.trim()) return "Subject is required.";
     if (!form.body.trim()) return "Body is required.";
     if (isNew && !form.linkedStatus) return "Please select a linked application status.";
+    if (isNew && form.linkedStatus === "Rejected" && !form.rejectionLetterType) {
+      return "Please select the rejection letter type so the correct footer can be applied.";
+    }
     return null;
   };
 
@@ -692,7 +1117,7 @@ export default function Archive() {
           <DialogHeader>
             <DialogTitle>Edit Email Template</DialogTitle>
           </DialogHeader>
-          <TemplateEditor form={editForm} setForm={setEditForm} bodyRef={editBodyRef} />
+          <TemplateEditor form={editForm} setForm={setEditForm} bodyRef={editBodyRef} rejectionMeta={rejectionMeta} knownFooters={knownFooters} letterCodes={letterCodes} />
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" type="button" onClick={() => setEditingTemplate(null)}>Cancel</Button>
             <Button
@@ -726,13 +1151,13 @@ export default function Archive() {
       {/* Add Template Dialog */}
       <Dialog open={showAddTemplate} onOpenChange={(open) => {
         setShowAddTemplate(open);
-        if (!open) setAddForm({ templateName: "", templateGroup: "qualification", subject: "", body: "", linkedStatus: "" });
+        if (!open) setAddForm({ templateName: "", templateGroup: "qualification", subject: "", body: "", linkedStatus: "", rejectionLetterType: "" });
       }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add New Email Template</DialogTitle>
           </DialogHeader>
-          <TemplateEditor form={addForm} setForm={setAddForm} isNew bodyRef={bodyRef} />
+          <TemplateEditor form={addForm} setForm={setAddForm} isNew bodyRef={bodyRef} rejectionMeta={rejectionMeta} knownFooters={knownFooters} letterCodes={letterCodes} />
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" type="button" onClick={() => setShowAddTemplate(false)}>Cancel</Button>
             <Button

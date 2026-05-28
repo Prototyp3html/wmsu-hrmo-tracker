@@ -121,7 +121,7 @@ function isWeakPassword(password: string) {
 }
 
 function renderTemplateText(template: string, variables: Record<string, string>) {
-  return template.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_match, key: string) => variables[key] ?? "");
+  return template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, key: string) => variables[key] ?? "");
 }
 
 async function logAudit(req: Request, action: string, userId?: string, details?: Record<string, unknown>) {
@@ -463,6 +463,11 @@ function renderTextBlockHtml(text: string) {
         return `<div style="border-top: 1px solid #eab308; margin: 14px 0;"></div>`;
       }
 
+      // Small footer lines (letter code / effective date) should render smaller
+      if (/^WMSU-?HRMO-?LET-?/i.test(line) || /^Effective date:/i.test(line)) {
+        return `<p style="margin: 0 0 8px; line-height: 1.4; color: #6b7280; font-size: 12px;">${escapeHtml(line)}</p>`;
+      }
+
       return `<p style="margin: 0 0 10px; line-height: 1.7; color: #1f2937;">${escapeHtml(line)}</p>`;
     })
     .join("");
@@ -710,47 +715,36 @@ async function sendApplicationStatusEmail(payload: {
     ? await fetchEmailTemplateByKey(payload.selectedTemplateKey as EmailTemplateKey)
     : null;
 
+  const templateVariables: Record<string, string> = {
+    applicantName: payload.applicantName,
+    jobTitle: payload.jobTitle,
+    department: payload.department ?? "",
+    date: formattedDate,
+    today: formattedDate,
+    "WMSU-HRMO-LET-002.02": "WMSU-HRMO-LET-002.02",
+    "WMSU-HRMO-LET-003.02": "WMSU-HRMO-LET-003.02",
+    "WMSU-HRMO-LET-004.02": "WMSU-HRMO-LET-004.02",
+    "WMSU-HRMO-LET-004A.00": "WMSU-HRMO-LET-004A.00",
+    "WMSU-HRMO-LET-007.00": "WMSU-HRMO-LET-007.00"
+  };
+
   if (selectedTemplate) {
     subject = selectedTemplate.subject;
   }
 
   if (payload.emailTemplateText?.trim()) {
-    body = renderTemplateText(payload.emailTemplateText.trim(), {
-      applicantName: payload.applicantName,
-      jobTitle: payload.jobTitle,
-      department: payload.department ?? "",
-      date: formattedDate,
-      today: formattedDate
-    });
+    body = renderTemplateText(payload.emailTemplateText.trim(), templateVariables);
   } else if (selectedTemplate) {
     subject = selectedTemplate.subject;
-    body = renderTemplateText(selectedTemplate.body, {
-      applicantName: payload.applicantName,
-      jobTitle: payload.jobTitle,
-      department: payload.department ?? "",
-      date: formattedDate,
-      today: formattedDate
-    });
+    body = renderTemplateText(selectedTemplate.body, templateVariables);
   }
 
   if (payload.status === "Rejected" && payload.rejectionTemplateText?.trim()) {
-    body = renderTemplateText(payload.rejectionTemplateText.trim(), {
-      applicantName: payload.applicantName,
-      jobTitle: payload.jobTitle,
-      department: payload.department ?? "",
-      date: formattedDate,
-      today: formattedDate
-    });
+    body = renderTemplateText(payload.rejectionTemplateText.trim(), templateVariables);
   }
 
   if (payload.status === "Approved" && payload.qualificationTemplateText?.trim()) {
-    body = renderTemplateText(payload.qualificationTemplateText.trim(), {
-      applicantName: payload.applicantName,
-      jobTitle: payload.jobTitle,
-      department: payload.department ?? "",
-      date: formattedDate,
-      today: formattedDate
-    });
+    body = renderTemplateText(payload.qualificationTemplateText.trim(), templateVariables);
   }
 
   body = body
@@ -3157,6 +3151,91 @@ app.delete("/api/email-templates/:templateKey", requireAuth, requireAdmin, async
   }
 
   res.status(204).send();
+}));
+
+// --- Letter file scanning (foldertmp) ---
+async function scanLetterFiles(): Promise<Array<{ code: string; filename: string; effectiveDate?: string }>> {
+  const folder = path.resolve(process.cwd(), "foldertmp");
+  let files: string[] = [];
+  try {
+    files = await fs.promises.readdir(folder);
+  } catch (e) {
+    return [];
+  }
+
+  const docxFiles = files.filter((f) => f.toLowerCase().endsWith(".docx"));
+  const results: Array<{ code: string; filename: string; effectiveDate?: string }> = [];
+
+  for (const file of docxFiles) {
+    const full = path.join(folder, file);
+    const codeMatch = file.match(/(WMSU-HRMO-LET-[A-Z0-9.]+)/i);
+    const code = codeMatch ? codeMatch[1].toUpperCase() : file;
+
+    let effectiveDate: string | undefined = undefined;
+    try {
+      const { value: text } = await mammoth.extractRawText({ path: full });
+      const effMatch = text.match(/Effective\s*date\s*[:\-]?\s*([A-Za-z0-9,\- ]{4,30})/i);
+      if (effMatch) {
+        effectiveDate = effMatch[1].trim();
+      } else {
+        const codeIndex = text.indexOf(code);
+        if (codeIndex !== -1) {
+          const near = text.slice(codeIndex, codeIndex + 200);
+          const dateLoose = near.match(/(\d{1,2}[\-\/][A-Za-z]{3,}[\-\/]?\d{2,4})/i) || near.match(/(\d{1,2}\s+[A-Za-z]{3,}\s+\d{4})/i);
+          if (dateLoose) effectiveDate = dateLoose[1];
+        }
+      }
+    } catch (e) {
+      // ignore extraction errors
+    }
+
+    results.push({ code, filename: file, effectiveDate });
+  }
+
+  const uniq = new Map<string, { code: string; filename: string; effectiveDate?: string }>();
+  for (const r of results) {
+    if (!uniq.has(r.code)) uniq.set(r.code, r);
+  }
+
+  return Array.from(uniq.values()).sort((a, b) => a.code.localeCompare(b.code));
+}
+
+app.get("/api/letter-codes", asyncHandler(async (_req, res) => {
+  const items = await scanLetterFiles();
+  res.json(items);
+}));
+
+app.get("/api/letter-codes/:code", asyncHandler(async (req, res) => {
+  const codeParam = String(req.params.code || "").toUpperCase();
+  const folder = path.resolve(process.cwd(), "foldertmp");
+  let files: string[] = [];
+  try {
+    files = await fs.promises.readdir(folder);
+  } catch (e) {
+    res.status(404).json({ error: "foldertmp not found" });
+    return;
+  }
+
+  const match = files.find((f) => {
+    const m = f.match(/(WMSU-HRMO-LET-[A-Z0-9.]+)/i);
+    return m && m[1].toUpperCase() === codeParam;
+  });
+
+  if (!match) {
+    res.status(404).json({ error: "Letter file not found" });
+    return;
+  }
+
+  const full = path.join(folder, match);
+  try {
+    const { value: text } = await mammoth.extractRawText({ path: full });
+    // extract effective date if present
+    const effMatch = text.match(/Effective\s*date\s*[:\-]?\s*([A-Za-z0-9,\- ]{4,30})/i);
+    const effectiveDate = effMatch ? effMatch[1].trim() : undefined;
+    res.json({ code: codeParam, filename: match, effectiveDate, text });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to extract text" });
+  }
 }));
 
 app.get("/api/evaluations", asyncHandler(async (_req, res) => {

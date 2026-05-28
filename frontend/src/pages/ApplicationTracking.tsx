@@ -53,7 +53,7 @@ function isDefaultTemplate(template: EmailTemplate) {
 }
 
 function renderTemplateText(template: string, variables: Record<string, string>) {
-  return template.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_match, key: string) => variables[key] ?? "");
+  return template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, key: string) => variables[key] ?? "");
 }
 
 export default function ApplicationTracking() {
@@ -161,6 +161,11 @@ export default function ApplicationTracking() {
       date: today,
       today,
       department: extraVars?.department ?? "",
+      "WMSU-HRMO-LET-002.02": "WMSU-HRMO-LET-002.02",
+      "WMSU-HRMO-LET-003.02": "WMSU-HRMO-LET-003.02",
+      "WMSU-HRMO-LET-004.02": "WMSU-HRMO-LET-004.02",
+      "WMSU-HRMO-LET-004A.00": "WMSU-HRMO-LET-004A.00",
+      "WMSU-HRMO-LET-007.00": "WMSU-HRMO-LET-007.00",
       ...extraVars
     });
   };

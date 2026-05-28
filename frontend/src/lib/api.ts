@@ -417,6 +417,14 @@ export async function fetchEmailTemplates() {
   return apiFetch<EmailTemplate[]>("/email-templates");
 }
 
+export async function fetchLetterCodes() {
+  return apiFetch<Array<{ code: string; filename: string; effectiveDate?: string }>>("/letter-codes");
+}
+
+export async function fetchLetterContent(code: string) {
+  return apiFetch<{ code: string; filename: string; effectiveDate?: string; text: string }>(`/letter-codes/${encodeURIComponent(code)}`);
+}
+
 export async function updateEmailTemplate(templateKey: EmailTemplate["templateKey"], payload: Omit<EmailTemplate, "templateKey" | "updatedAt">) {
   return apiFetch<EmailTemplate>(`/email-templates/${templateKey}`, {
     method: "PUT",

@@ -1224,6 +1224,38 @@ export default function Applicants() {
       const children = parseChildrenInfo(applicant.childrenInfo || "").filter(
         (c) => hasMeaningfulValue(c.fullName) || hasMeaningfulValue(c.dateOfBirth)
       );
+      const c4Questions = {
+        q34: {
+          text: "Are you related by consanguinity or affinity to the appointing or recommending authority, or to the chief of bureau or office or to the person who has immediate supervision over you in the Office, Bureau or Department where you will be appointed?",
+          items: [
+            { label: "a.", text: "within the third degree?" },
+            { label: "b.", text: "within the fourth degree (for Local Government Unit - Career Employees)?" }
+          ]
+        },
+        q35: {
+          items: [
+            { label: "a.", text: "Have you ever been found guilty of any administrative offense?" },
+            { label: "b.", text: "Have you been criminally charged before any court?" }
+          ]
+        },
+        q36: "Have you ever been convicted of any crime or violation of any law, decree, ordinance or regulation by any court or tribunal?",
+        q37: "Have you ever been separated from the service in any of the following modes: resignation, retirement, dropped from the rolls, dismissal, termination, end of term, finished contract or phased out (abolition) in the public or private sector?",
+        q38: {
+          items: [
+            { label: "a.", text: "Have you ever been a candidate in a national or local election held within the last year (except Barangay election)?" },
+            { label: "b.", text: "Have you resigned from the government service during the three (3)-month period before the last election to promote/actively campaign for a national or local candidate?" }
+          ]
+        },
+        q39: "Have you acquired the status of an immigrant or permanent resident of another country?",
+        q40Lead: "Pursuant to: (a) Indigenous People's Act (RA 8371); (b) Magna Carta for Disabled Persons (RA 7277, as amended); and (c) Expanded Solo Parents Welfare Act (RA 11861), please answer the following items:",
+        q40: [
+          { label: "a.", text: "Are you a member of any indigenous group?" },
+          { label: "b.", text: "Are you a person with disability?" },
+          { label: "c.", text: "Are you a solo parent?" }
+        ],
+        q41: "REFERENCES (Person not related by consanguinity or affinity to applicant/appointee)",
+        q42: "I declare under oath that I have personally accomplished this Personal Data Sheet which is a true, correct and complete statement pursuant to the provisions of pertinent laws, rules and regulations of the Republic of the Philippines. I authorize the agency head/authorized representative to verify/validate the contents stated herein. I agree that any misrepresentation made in this document and its attachments shall cause the filing of administrative/criminal case/s against me."
+      };
 
       // ── name parts ───────────────────────────────────────────────────────
       const np = splitFullName(applicant.fullName || "");
@@ -1255,14 +1287,71 @@ export default function Applicants() {
         const LGRAY:     [number,number,number] = [100, 100, 100];
 
         let y = ML;
+        // Track which worksheet page we are on (pages 1–3 get inline signature footer).
+        let worksheetPage = 1;
 
         // ── low-level helpers ─────────────────────────────────────────────
 
         const newPage = () => { pdf.addPage(); y = ML; };
 
+        // Draw the "Continue on separate sheet" note + SIGNATURE / DATE band
+        // directly at the current y position so it always connects to the last
+        // table row and stays well inside the printable area.
+        const drawInlineSignatureFooter = () => {
+          const noteH  = 3.5;
+          const bandH  = 6.5;
+          const labelW = CW * 0.19;
+          const noteW  = CW * 0.48;
+          const dateW  = CW * 0.15;
+          const dateValW = CW - labelW - noteW - dateW;
+
+          // "Continue on separate sheet" italic red note
+          fillR(ML, y, CW, noteH, WHITE);
+          borderR(ML, y, CW, noteH, 0.2);
+          pdf.setFont("helvetica", "italic");
+          pdf.setFontSize(5.1);
+          pdf.setTextColor(200, 0, 0);
+          pdf.text("(Continue on separate sheet if necessary)", ML + CW / 2, y + 2.3, { align: "center" });
+          y += noteH;
+
+          // Signature band — four columns: SIGNATURE label | note | DATE label | date value
+          fillR(ML,                          y, labelW,   bandH, COL_BG); borderR(ML,                          y, labelW,   bandH, 0.2);
+          fillR(ML + labelW,                 y, noteW,    bandH, WHITE);  borderR(ML + labelW,                 y, noteW,    bandH, 0.2);
+          fillR(ML + labelW + noteW,         y, dateW,    bandH, COL_BG); borderR(ML + labelW + noteW,         y, dateW,    bandH, 0.2);
+          fillR(ML + labelW + noteW + dateW, y, dateValW, bandH, WHITE);  borderR(ML + labelW + noteW + dateW, y, dateValW, bandH, 0.2);
+
+          pdf.setTextColor(0, 0, 0);
+          pdf.setFont("helvetica", "bolditalic");
+          pdf.setFontSize(6.2);
+          pdf.text("SIGNATURE", ML + labelW / 2, y + 4.4, { align: "center" });
+          pdf.text("DATE", ML + labelW + noteW + dateW / 2, y + 4.4, { align: "center" });
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(4.9);
+          pdf.setTextColor(200, 0, 0);
+          pdf.text("(wet signature/e-signature/digital certificate)", ML + labelW + noteW / 2, y + 4.1, { align: "center", maxWidth: noteW - 3 });
+
+          // Page number footer (bottom-right, outside the band)
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(5.1);
+          pdf.setTextColor(100, 100, 100);
+          pdf.text(`CS FORM 212 (Revised 2025), Page ${worksheetPage} of 4`, ML + CW, y + bandH - 1.5, { align: "right" });
+          pdf.setTextColor(0, 0, 0);
+          y += bandH;
+        };
+
+        // Signature footer height (note + band) — used for guard calculations
+        const SIG_FOOTER_H = 3.5 + 6.5; // 10mm
+
         // guard() is used ONLY for whole-section pre-flight checks.
         // Never call it inside a row loop — that causes mid-table page breaks.
-        const guard = (need: number) => { if (y + need > PH - ML) newPage(); };
+        // When a page break is needed, the inline signature footer is drawn first.
+        const guard = (need: number) => {
+          if (y + need + SIG_FOOTER_H > PH - ML) {
+            drawInlineSignatureFooter();
+            worksheetPage++;
+            newPage();
+          }
+        };
 
         const fillR = (x: number, ry: number, w: number, h: number, c: [number,number,number]) => {
           pdf.setFillColor(...c);
@@ -1592,7 +1681,7 @@ export default function Applicants() {
           "DATE OF\nVALIDITY"
         ];
         const csHdrH = 11;
-        const minCS = Math.max(civilServiceRows.length, 4);
+        const minCS = Math.max(civilServiceRows.length, 5);
         // Pre-flight the WHOLE block so header + rows always land together
         guard(5.5 + csHdrH + minCS * 6);
         secHdr("IV.", "Civil Service Eligibility");
@@ -1611,7 +1700,7 @@ export default function Applicants() {
         const weW = [CW*0.10, CW*0.10, CW*0.22, CW*0.28, CW*0.10, CW*0.12, CW-(CW*0.10*2+CW*0.22+CW*0.28+CW*0.10+CW*0.12)];
         const weHdrs = ["INCLUSIVE\nDATES FROM","INCLUSIVE\nDATES TO","POSITION TITLE\n(Write in full/\nDo not abbreviate)","DEPARTMENT/AGENCY/OFFICE/\nCOMPANY (Write in full/\nDo not abbreviate)","MONTHLY\nSALARY","STATUS OF\nAPPOINTMENT","GOV'T\nSERVICE\n(Y/N)"];
         const weHdrH = 12;
-        const minWe = Math.max(workRows.length, 7);
+        const minWe = Math.max(workRows.length, 12);
         // Pre-flight the WHOLE block so header + rows always land together
         guard(5.5 + weHdrH + minWe * 6);
         secHdr("V.", "Work Experience");
@@ -1630,11 +1719,16 @@ export default function Applicants() {
           y+=6;
         }
 
+        // Draw inline signature footer at end of page 2 content, then break to page 3.
+        drawInlineSignatureFooter();
+        worksheetPage++;
+        newPage();
+
         // ══ VI. Voluntary Work ═══════════════════════════════════════════
         const vwW = [CW*0.38, CW*0.12, CW*0.12, CW*0.10, CW-(CW*0.38+CW*0.12*2+CW*0.10)];
         const vwHdrs = ["NAME & ADDRESS OF ORGANIZATION\n(Write in full)","INCLUSIVE\nDATES FROM","INCLUSIVE\nDATES TO","NUMBER\nOF HOURS","POSITION/\nNATURE OF WORK"];
         const vwHdrH = 9;
-        const minVw = Math.max(voluntaryRows.length, 4);
+        const minVw = Math.max(voluntaryRows.length, 8);
         // Pre-flight the whole block
         guard(5.5 + vwHdrH + minVw * 6);
         secHdr("VI.", "Voluntary Work or Involvement in Civic / Non-Government / People / Voluntary Organization/s");
@@ -1653,7 +1747,7 @@ export default function Applicants() {
         const ldW = [CW*0.32, CW*0.10, CW*0.10, CW*0.09, CW*0.14, CW-(CW*0.32+CW*0.10*2+CW*0.09+CW*0.14)];
         const ldHdrs = ["TITLE OF LEARNING AND DEVELOPMENT\nINTERVENTION/TRAINING PROGRAM","INCLUSIVE\nDATES\nFROM","INCLUSIVE\nDATES\nTO","NUMBER\nOF\nHOURS","TYPE OF LD\n(Managerial/\nSupervisory/\nTechnical/etc)","CONDUCTED/\nSPONSORED\nBY"];
         const ldHdrH = 12;
-        const minLd = Math.max(trainingRows.length, 5);
+        const minLd = Math.max(trainingRows.length, 10);
         // Pre-flight the whole block
         guard(5.5 + ldHdrH + minLd * 6);
         secHdr("VII.", "Learning and Development (L&D) Interventions/Training Programs Attended");
@@ -1673,9 +1767,9 @@ export default function Applicants() {
 
         // ══ VIII. Other Information ══════════════════════════════════════
         const oiW = [CW/3, CW/3, CW - CW/3*2];
-        const oiHdrs = ["34.  SPECIAL SKILLS and HOBBIES","35.  NON-ACADEMIC DISTINCTIONS/\nRECOGNITION (Write in full)","36.  MEMBERSHIP IN ASSOCIATION/\nORGANIZATION (Write in full)"];
+        const oiHdrs = ["31.  SPECIAL SKILLS and HOBBIES","32.  NON-ACADEMIC DISTINCTIONS/\nRECOGNITION (Write in full)","33.  MEMBERSHIP IN ASSOCIATION/\nORGANIZATION (Write in full)"];
         const oiHdrH = 8;
-        const minOi = Math.max(otherInfoRows.length, 4);
+        const minOi = Math.max(otherInfoRows.length, 8);
         // Pre-flight the whole block
         guard(5.5 + oiHdrH + minOi * 6);
         secHdr("VIII.", "Other Information");
@@ -1690,72 +1784,289 @@ export default function Applicants() {
           y+=6;
         }
 
-        // ══ 37. References ════════════════════════════════════════════════
-        const refW = [CW*0.40, CW*0.35, CW - CW*0.40 - CW*0.35];
-        const refLines = (applicant.referencesInfo||"").split("\n").filter(Boolean);
-        const minRef = Math.max(refLines.length, 3);
-        // Pre-flight the whole block
-        guard(5.5 + 6 + minRef * 6);
-        secHdr("37.", "References (Person not related by consanguinity or affinity to applicant/appointee)");
-        tblRow([{w:refW[0],val:"NAME"},{w:refW[1],val:"ADDRESS"},{w:refW[2],val:"TEL. NO."}], 6, true);
-        for (let i=0;i<minRef;i++) {
-          const parts = (refLines[i]||"").split("|");
-          tblRow([{w:refW[0],val:parts[0]||""},{w:refW[1],val:parts[1]||""},{w:refW[2],val:parts[2]||""}], 6);
+        // Draw inline signature footer at end of page 3 content, then break to page 4 (C4).
+        drawInlineSignatureFooter();
+        worksheetPage++;
+        newPage();
+
+        // ══════════════════════════════════════════════════════════════════
+        //  PAGE 4 — C4 sheet: Background Questions + References + Declaration
+        //  Matches CS Form No. 212 (Revised 2025) xlsx C4 sheet exactly.
+        //  NOTE: References (#41) belong here in C4, NOT on page 3.
+        // ══════════════════════════════════════════════════════════════════
+        // The prior newPage() ends page 3; C4 renders on the fresh page 4.
+        let c4Y = ML;
+
+        // Column split: left panel holds questions, right panel holds YES/NO boxes
+        const c4LeftW = CW * 0.69;
+        const c4RightW = CW - c4LeftW;
+        const c4RightX = ML + c4LeftW;
+
+        // ── helpers scoped to C4 ─────────────────────────────────────────
+        /** Draw the left question box */
+        const questionBox = (num: string, text: string, h: number) => {
+          fillR(ML, c4Y, c4LeftW, h, WHITE);
+          borderR(ML, c4Y, c4LeftW, h, 0.3);
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(6.8);
+          if (num) {
+            pdf.setFont("helvetica", "bold");
+            pdf.text(num, ML + 1.5, c4Y + 4.5);
+            pdf.setFont("helvetica", "normal");
+            pdf.text(pdf.splitTextToSize(text, c4LeftW - 9), ML + 8, c4Y + 4.5);
+          } else {
+            pdf.text(pdf.splitTextToSize(text, c4LeftW - 5), ML + 4, c4Y + 4.5);
+          }
+        };
+        /** Draw the right YES/NO answer box and its text lines */
+        const answerBox = (h: number, lines: string[]) => {
+          fillR(c4RightX, c4Y, c4RightW, h, WHITE);
+          borderR(c4RightX, c4Y, c4RightW, h, 0.3);
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(6.2);
+          const startY = c4Y + 5;
+          lines.forEach((line, idx) => {
+            pdf.text(line, c4RightX + 3, startY + idx * 4.2, { maxWidth: c4RightW - 4 });
+          });
+        };
+        /** Draw one full question row (left + right together) then advance c4Y */
+        const qRow = (num: string, text: string, h: number, answerLines: string[]) => {
+          questionBox(num, text, h);
+          answerBox(h, answerLines);
+          c4Y += h;
+        };
+
+        // ── Q34: Consanguinity / affinity ────────────────────────────────
+        const q34H = 24;
+        fillR(ML, c4Y, c4LeftW, q34H, WHITE);
+        borderR(ML, c4Y, c4LeftW, q34H, 0.3);
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(6.8);
+        pdf.text("34.", ML + 1.5, c4Y + 4.5);
+        pdf.setFont("helvetica", "normal");
+        pdf.text(pdf.splitTextToSize(c4Questions.q34.text, c4LeftW - 9), ML + 8, c4Y + 4.5);
+        pdf.setFontSize(6.2);
+        pdf.text("a.  within the third degree?", ML + 10, c4Y + 15);
+        pdf.text("b.  within the fourth degree (for Local Government Unit \u2013 Career Employees)?", ML + 10, c4Y + 21, { maxWidth: c4LeftW - 12 });
+        fillR(c4RightX, c4Y, c4RightW, q34H, WHITE);
+        borderR(c4RightX, c4Y, c4RightW, q34H, 0.3);
+        pdf.setFontSize(6.2);
+        pdf.text("[ ] YES      [ ] NO", c4RightX + 3, c4Y + 9);
+        pdf.text("[ ] YES      [ ] NO", c4RightX + 3, c4Y + 16);
+        pdf.text("If YES, give details:", c4RightX + 3, c4Y + 22);
+        c4Y += q34H;
+
+        // ── Q35a ─────────────────────────────────────────────────────────
+        qRow("35.", "a.  Have you ever been found guilty of any administrative offense?", 13,
+          ["[ ] YES      [ ] NO", "If YES, give details: ________________________"]);
+
+        // ── Q35b: criminally charged (extra height to fit all 4 answer lines) ─
+        const q35bH = 22;
+        fillR(ML, c4Y, c4LeftW, q35bH, WHITE);
+        borderR(ML, c4Y, c4LeftW, q35bH, 0.3);
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(6.8);
+        pdf.text(pdf.splitTextToSize("b.  Have you been criminally charged before any court?", c4LeftW - 5), ML + 4, c4Y + 4.5);
+        fillR(c4RightX, c4Y, c4RightW, q35bH, WHITE);
+        borderR(c4RightX, c4Y, c4RightW, q35bH, 0.3);
+        pdf.setFontSize(6.2);
+        pdf.text("[ ] YES      [ ] NO", c4RightX + 3, c4Y + 5);
+        pdf.text("If YES, give details: ________________________", c4RightX + 3, c4Y + 10, { maxWidth: c4RightW - 4 });
+        pdf.text("Date Filed: __________________", c4RightX + 3, c4Y + 15);
+        pdf.text("Status of Case/s: _______________", c4RightX + 3, c4Y + 20);
+        c4Y += q35bH;
+
+        // ── Q36 ──────────────────────────────────────────────────────────
+        qRow("36.", c4Questions.q36, 13,
+          ["[ ] YES      [ ] NO", "If YES, give details: ________________________"]);
+
+        // ── Q37 ──────────────────────────────────────────────────────────
+        qRow("37.", c4Questions.q37, 16,
+          ["[ ] YES      [ ] NO", "If YES, give details: ________________________"]);
+
+        // ── Q38a ─────────────────────────────────────────────────────────
+        qRow("38.", "a.  Have you ever been a candidate in a national or local election held within the last year (except Barangay election)?", 13,
+          ["[ ] YES      [ ] NO", "If YES, give details: ________________________"]);
+
+        // ── Q38b ─────────────────────────────────────────────────────────
+        qRow("", "b.  Have you resigned from the government service during the three (3)-month period before the last election to promote/actively campaign for a national or local candidate?", 14,
+          ["[ ] YES      [ ] NO", "If YES, give details: ________________________"]);
+
+        // ── Q39 ──────────────────────────────────────────────────────────
+        qRow("39.", c4Questions.q39, 12,
+          ["[ ] YES      [ ] NO", "If YES, give details (country): ______________"]);
+
+        // ── Q40: RA 8371 / RA 7277 / RA 11861 ───────────────────────────
+        const q40H = 28;
+        fillR(ML, c4Y, c4LeftW, q40H, WHITE);
+        borderR(ML, c4Y, c4LeftW, q40H, 0.3);
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(6.8);
+        pdf.text("40.", ML + 1.5, c4Y + 4.5);
+        pdf.setFont("helvetica", "normal");
+        pdf.text(pdf.splitTextToSize(c4Questions.q40Lead, c4LeftW - 9), ML + 8, c4Y + 4.5);
+        pdf.setFontSize(6.2);
+        pdf.text("a.  Are you a member of any indigenous group?", ML + 8, c4Y + 16);
+        pdf.text("b.  Are you a person with disability?", ML + 8, c4Y + 21);
+        pdf.text("c.  Are you a solo parent?", ML + 8, c4Y + 26);
+        fillR(c4RightX, c4Y, c4RightW, q40H, WHITE);
+        borderR(c4RightX, c4Y, c4RightW, q40H, 0.3);
+        pdf.setFontSize(6.2);
+        pdf.text("[ ] YES   [ ] NO  If YES, please specify:", c4RightX + 3, c4Y + 15, { maxWidth: c4RightW - 4 });
+        pdf.text("[ ] YES   [ ] NO  If YES, please specify ID No:", c4RightX + 3, c4Y + 20, { maxWidth: c4RightW - 4 });
+        pdf.text("[ ] YES   [ ] NO  If YES, please specify ID No:", c4RightX + 3, c4Y + 25, { maxWidth: c4RightW - 4 });
+        c4Y += q40H;
+
+        // ── Q41: References + Photo box ───────────────────────────────────
+        // Photo box spans: Q41 header + column label row + 3 data rows + Q42 declaration
+        // Matches xlsx C4: photo sits flush to the right of all ref rows AND Q42.
+        const refLines = (applicant.referencesInfo || "").split("\n").filter(Boolean);
+        const minRef   = Math.max(refLines.length, 3);
+        const refHdrH  = 7;     // "41. REFERENCES" header bar
+        const refColH  = 5.5;   // column label row
+        // Row height sized so photo box total = exactly 45mm (4.5cm per spec)
+        // 45 = refHdrH(7) + refColH(5.5) + minRef(3) * refRowH  → refRowH ≈ 10.83
+        const refRowH  = (45 - refHdrH - refColH) / minRef;
+        const declH    = 20;    // Q42 declaration box (full-width, below photo)
+        // Photo width = exactly 35mm (3.5cm per spec)
+        const photoW   = 35;
+        const refAreaW = CW - photoW;
+        // Photo box spans ONLY the references section (header + col + data rows = 45mm)
+        const photoTotalH = refHdrH + refColH + minRef * refRowH; // = 45mm
+
+        // Draw photo box (right column, refs section only)
+        const photoX = ML + refAreaW;
+        fillR(photoX, c4Y, photoW, photoTotalH, WHITE);
+        borderR(photoX, c4Y, photoW, photoTotalH, 0.3);
+        pdf.setFontSize(5.0); pdf.setFont("helvetica", "normal"); pdf.setTextColor(...LGRAY);
+        pdf.text(
+          "Passport-sized unfiltered\ndigital picture taken within\nthe last 3 months\n4.5 cm \u00d7 3.5 cm",
+          photoX + photoW / 2, c4Y + 10,
+          { align: "center", maxWidth: photoW - 3 }
+        );
+        // PHOTO label bar at bottom of photo box
+        const photoLabelH = 6;
+        const photoLabelY = c4Y + photoTotalH - photoLabelH;
+        fillR(photoX, photoLabelY, photoW, photoLabelH, COL_BG);
+        borderR(photoX, photoLabelY, photoW, photoLabelH, 0.3);
+        pdf.setFontSize(6.2); pdf.setFont("helvetica", "bold"); pdf.setTextColor(...BLACK);
+        pdf.text("PHOTO", photoX + photoW / 2, photoLabelY + 4.2, { align: "center" });
+
+        // 41. REFERENCES header bar (left of photo)
+        fillR(ML, c4Y, refAreaW, refHdrH, COL_BG);
+        borderR(ML, c4Y, refAreaW, refHdrH, 0.3);
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(6.8); pdf.setTextColor(...BLACK);
+        pdf.text("41.  " + c4Questions.q41, ML + 2, c4Y + 4.5, { maxWidth: refAreaW - 4 });
+        c4Y += refHdrH;
+
+        // Column header row
+        const rW = [refAreaW * 0.38, refAreaW * 0.37, refAreaW - refAreaW * 0.38 - refAreaW * 0.37];
+        hdr("NAME", ML, c4Y, rW[0], refColH);
+        hdr("OFFICE / RESIDENTIAL ADDRESS", ML + rW[0], c4Y, rW[1], refColH);
+        hdr("CONTACT NO. AND/OR EMAIL", ML + rW[0] + rW[1], c4Y, rW[2], refColH);
+        c4Y += refColH;
+
+        // Reference data rows
+        for (let i = 0; i < minRef; i++) {
+          const parts = (refLines[i] || "").split("|");
+          vc(parts[0] || "", ML, c4Y, rW[0], refRowH);
+          vc(parts[1] || "", ML + rW[0], c4Y, rW[1], refRowH);
+          vc(parts[2] || "", ML + rW[0] + rW[1], c4Y, rW[2], refRowH);
+          c4Y += refRowH;
         }
- guard(60); // ensure enough room for declaration + signature block
-        y += 3;
 
-        // Declaration
-        const declH = 22;
-        fillR(ML, y, CW, declH, WHITE); borderR(ML, y, CW, declH, 0.3);
-        pdf.setFontSize(6.5); pdf.setFont("helvetica","normal"); pdf.setTextColor(0,0,0);
-        const decl =
-          "I declare under oath that I have personally accomplished this Personal Data Sheet which is a true, " +
-          "correct and complete statement pursuant to the provisions of pertinent laws, rules and regulations of " +
-          "the Republic of the Philippines. I authorize the agency head/authorized representative to verify/validate " +
-          "the contents stated herein. I agree that any misrepresentation made in this document and its attachments " +
-          "shall cause the filing of administrative/criminal case/s against me.";
-        const declLines = pdf.splitTextToSize(decl, CW - 4);
-        pdf.text(declLines, ML + 2, y + 4);
-        y += declH + 4;
+        // ── Q42: Declaration — full width (photo box ends above) ────────
+        fillR(ML, c4Y, CW, declH, WHITE);
+        borderR(ML, c4Y, CW, declH, 0.3);
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(6.4); pdf.setTextColor(...BLACK);
+        pdf.text("42.", ML + 1.5, c4Y + 4.0);
+        pdf.setFont("helvetica", "normal");
+        pdf.text(pdf.splitTextToSize(c4Questions.q42, CW - 9), ML + 8, c4Y + 4.0);
+        pdf.setFontSize(5.7);
+        pdf.text("Signature", ML + 2, c4Y + declH - 4);
+        pdf.line(ML + 18, c4Y + declH - 5, ML + CW - 4, c4Y + declH - 5);
+        c4Y += declH;
 
-        // Signature block
-        const sigH = 22;
-        const sigW = CW / 2;
+        // ── Bottom: Gov't ID box | Signature/Date box | Right Thumbmark ──
+        const botH      = 28;
+        const idBoxW    = CW * 0.35;
+        const sigBoxW   = CW * 0.40;
+        const thumbBoxW = CW - idBoxW - sigBoxW;
 
-        // Left: Applicant signature
-        fillR(ML, y, sigW, sigH, WHITE); borderR(ML, y, sigW, sigH, 0.3);
-        txt("Signature", ML, y + sigH - 7, sigW, 5, 6.5, false, BLACK, "center");
-        pdf.setDrawColor(...DGRAY); pdf.setLineWidth(0.3);
-        pdf.line(ML+6, y + sigH - 8, ML + sigW - 6, y + sigH - 8);
+        // Gov't ID box (left)
+        fillR(ML, c4Y, idBoxW, botH, WHITE);
+        borderR(ML, c4Y, idBoxW, botH, 0.3);
+        pdf.setFontSize(4.8); pdf.setFont("helvetica", "normal"); pdf.setTextColor(...BLACK);
+        const idHdr1Lines = pdf.splitTextToSize(
+          "Government Issued ID (i.e.Passport, GSIS, SSS, PRC, Driver's License, etc.)",
+          idBoxW - 4
+        );
+        let idY = c4Y + 3.0;
+        for (const ln of idHdr1Lines) { pdf.text(ln, ML + 2, idY); idY += 3.4; }
+        pdf.setFont("helvetica", "italic"); pdf.setTextColor(180, 0, 0); pdf.setFontSize(4.6);
+        pdf.text("PLEASE INDICATE ID Number and Date of Issuance", ML + 2, idY, { maxWidth: idBoxW - 4 });
+        idY += 4.5;
+        pdf.setFont("helvetica", "normal"); pdf.setTextColor(...BLACK); pdf.setFontSize(5.0);
+        const fldGap = 5.8;
+        pdf.text("Government Issued ID:", ML + 2, idY);
+        pdf.line(ML + 2, idY + 1.4, ML + idBoxW - 2, idY + 1.4); idY += fldGap;
+        pdf.text("ID/License/Passport No.:", ML + 2, idY);
+        pdf.line(ML + 2, idY + 1.4, ML + idBoxW - 2, idY + 1.4); idY += fldGap;
+        pdf.text("Date/Place of Issuance:", ML + 2, idY);
+        pdf.line(ML + 2, idY + 1.4, ML + idBoxW - 2, idY + 1.4);
 
-        // Right: Administering officer
-        fillR(ML + sigW, y, sigW, sigH, WHITE); borderR(ML + sigW, y, sigW, sigH, 0.3);
-        pdf.setFontSize(6); pdf.setFont("helvetica","normal"); pdf.setTextColor(0,0,0);
-        const sworn = "SUBSCRIBED AND SWORN to before me this ___ day of ______________, ______ at _________________________, Philippines.";
-        const swornLines = pdf.splitTextToSize(sworn, sigW - 4);
-        pdf.text(swornLines, ML + sigW + 2, y + 5);
-        txt("Administering Officer", ML + sigW, y + sigH - 7, sigW, 5, 6.5, false, BLACK, "center");
-        pdf.line(ML + sigW + 4, y + sigH - 8, ML + CW - 4, y + sigH - 8);
-        y += sigH;
+        // Signature/Date box (center)
+        const sigX = ML + idBoxW;
+        fillR(sigX, c4Y, sigBoxW, botH, WHITE);
+        borderR(sigX, c4Y, sigBoxW, botH, 0.3);
+        // Inner signature area (top half of box)
+        borderR(sigX + 3, c4Y + 2, sigBoxW - 6, botH * 0.5, 0.3);
+        pdf.setFontSize(4.8); pdf.setFont("helvetica", "normal"); pdf.setTextColor(...LGRAY);
+        pdf.text("(wet signature/e-signature/digital certificate)",
+          sigX + sigBoxW / 2, c4Y + 2 + botH * 0.5 / 2,
+          { align: "center", maxWidth: sigBoxW - 8 }
+        );
+        pdf.setTextColor(...BLACK); pdf.setFontSize(5.8);
+        pdf.text("Signature (Sign inside the box)", sigX + sigBoxW / 2, c4Y + botH * 0.5 + 6, { align: "center" });
+        pdf.text("Date Accomplished", sigX + sigBoxW / 2, c4Y + botH - 4, { align: "center" });
 
-        // ── footer on every page ──────────────────────────────────────────
-        // "CS Form No. 212 (Revised 2025)" is the official CSC form identifier —
-        // included for HR processing compatibility. The "Generated by" tag
-        // clearly identifies this system as the source, not the CSC itself.
-        const pageCount = (pdf.internal as any).getNumberOfPages();
-        for (let p = 1; p <= pageCount; p++) {
-          pdf.setPage(p);
-          pdf.setFontSize(5.5);
-          pdf.setFont("helvetica","normal");
-          pdf.setTextColor(100,100,100);
-          pdf.text(
-            `CS Form No. 212 (Revised 2025)  |  Page ${p} of ${pageCount}  |  Generated by WMSU HRMO Tracker on ${new Date().toLocaleDateString()}  |  ${applicant.fullName || ""}`,
-            ML, PH - 4
-          );
-        }
+        // Right Thumbmark box
+        const thumbX = ML + idBoxW + sigBoxW;
+        fillR(thumbX, c4Y, thumbBoxW, botH, WHITE);
+        borderR(thumbX, c4Y, thumbBoxW, botH, 0.3);
+        pdf.setFontSize(6.0); pdf.setFont("helvetica", "bold"); pdf.setTextColor(...BLACK);
+        pdf.text("Right Thumbmark", thumbX + thumbBoxW / 2, c4Y + botH - 3.5, { align: "center" });
+        c4Y += botH;
 
-        pdf.save(`${fileNameBase}_PDS.pdf`);
+        // ── Subscribed and Sworn strip ────────────────────────────────────
+        const swornH = 7;
+        fillR(ML, c4Y, CW, swornH, WHITE);
+        borderR(ML, c4Y, CW, swornH, 0.3);
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(5.0); pdf.setTextColor(...BLACK);
+        pdf.text(
+          "SUBSCRIBED AND SWORN to before me this ________ day of ____________, ________ at _____________________, affiant exhibiting his/her validly issued government ID as indicated above.",
+          ML + 2, c4Y + 4.0, { maxWidth: CW - 4 }
+        );
+        c4Y += swornH;
+
+        // ── Person Administering Oath (centered, red border per xlsx screenshot) ─
+        const oathBoxX = ML + CW * 0.33;
+        const oathBoxW = CW * 0.34;
+        const oathH    = 10;
+        fillR(oathBoxX, c4Y, oathBoxW, oathH, WHITE);
+        pdf.setDrawColor(200, 0, 0);
+        pdf.setLineWidth(0.6);
+        pdf.rect(oathBoxX, c4Y, oathBoxW, oathH, "S");
+        pdf.setDrawColor(...DGRAY);
+        pdf.setLineWidth(0.3);
+        pdf.line(oathBoxX + 4, c4Y + 5, oathBoxX + oathBoxW - 4, c4Y + 5);
+        pdf.setFontSize(5.6); pdf.setFont("helvetica", "bold"); pdf.setTextColor(...BLACK);
+        pdf.text("Person Administering Oath", oathBoxX + oathBoxW / 2, c4Y + 8.5, { align: "center" });
+
+        // Page 4 footer
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(5.1);
+        pdf.setTextColor(100, 100, 100);
+        pdf.text(`CS FORM 212 (Revised 2025), Page 4 of 4`, ML + CW, PH - 4, { align: "right" });
+        pdf.setTextColor(0, 0, 0);
+
+                pdf.save(`${fileNameBase}_PDS.pdf`);
 
       // ════════════════════════════════════════════════════════════════════
       //  DOCX — clean structured format (unchanged)
@@ -1861,6 +2172,53 @@ export default function Applicants() {
             otherInfoRows.map(r=>[r.specialSkillsHobbies,r.nonAcademicDistinctionsRecognition,r.membershipsAssociationOrganization].map(formatExportValue))
           ),
           mkKV([["References", formatExportValue(applicant.referencesInfo)]]),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({ children: [
+                new TableCell({ width:{size:68,type:WidthType.PERCENTAGE}, children:[
+                  new Paragraph({ children:[new TextRun({ text: `34. ${c4Questions.q34.text}`, bold: true })] }),
+                  new Paragraph({ children:[new TextRun({ text: `a. ${c4Questions.q34.items[0].text}` })] }),
+                  new Paragraph({ children:[new TextRun({ text: `b. ${c4Questions.q34.items[1].text}` })] }),
+                  new Paragraph({ children:[new TextRun({ text: "[ ] YES    [ ] NO" })] }),
+                  new Paragraph({ children:[new TextRun({ text: "If YES, give details: _________________________________" })] }),
+                  new Paragraph({ children:[new TextRun({ text: `35. a. ${c4Questions.q35.items[0].text}`, bold: true })] }),
+                  new Paragraph({ children:[new TextRun({ text: `b. ${c4Questions.q35.items[1].text}`, bold: true })] }),
+                  new Paragraph({ children:[new TextRun({ text: "[ ] YES    [ ] NO" })] }),
+                  new Paragraph({ children:[new TextRun({ text: "If YES, give details: _________________________________" })] }),
+                  new Paragraph({ children:[new TextRun({ text: `36. ${c4Questions.q36}`, bold: true })] }),
+                  new Paragraph({ children:[new TextRun({ text: "[ ] YES    [ ] NO" })] }),
+                  new Paragraph({ children:[new TextRun({ text: "If YES, give details: _________________________________" })] }),
+                  new Paragraph({ children:[new TextRun({ text: `37. ${c4Questions.q37}`, bold: true })] }),
+                  new Paragraph({ children:[new TextRun({ text: "[ ] YES    [ ] NO" })] }),
+                  new Paragraph({ children:[new TextRun({ text: "If YES, give details: _________________________________" })] }),
+                  new Paragraph({ children:[new TextRun({ text: `38. a. ${c4Questions.q38.items[0].text}`, bold: true })] }),
+                  new Paragraph({ children:[new TextRun({ text: `b. ${c4Questions.q38.items[1].text}`, bold: true })] }),
+                  new Paragraph({ children:[new TextRun({ text: "[ ] YES    [ ] NO" })] }),
+                  new Paragraph({ children:[new TextRun({ text: "If YES, give details: _________________________________" })] }),
+                  new Paragraph({ children:[new TextRun({ text: `39. ${c4Questions.q39}`, bold: true })] }),
+                  new Paragraph({ children:[new TextRun({ text: "[ ] YES    [ ] NO" })] }),
+                  new Paragraph({ children:[new TextRun({ text: "If YES, give details (country): __________________" })] }),
+                  new Paragraph({ children:[new TextRun({ text: `40. ${c4Questions.q40Lead}`, bold: true })] }),
+                  new Paragraph({ children:[new TextRun({ text: `a. ${c4Questions.q40[0].text}` })] }),
+                  new Paragraph({ children:[new TextRun({ text: `b. ${c4Questions.q40[1].text}` })] }),
+                  new Paragraph({ children:[new TextRun({ text: `c. ${c4Questions.q40[2].text}` })] }),
+                  new Paragraph({ spacing:{before:120, after:60}, children:[new TextRun({ text: `41. ${c4Questions.q41}`, bold: true })] }),
+                  new Paragraph({ spacing:{before:120}, children:[new TextRun({ text: "I declare under oath that I have personally accomplished this Personal Data Sheet which is a true, correct and complete statement pursuant to the provisions of pertinent laws, rules and regulations of the Republic of the Philippines. I authorize the agency head/authorized representative to verify/validate the contents stated herein. I agree that any misrepresentation made in this document and its attachments shall cause the filing of administrative and/or criminal case/s against me.", })] }),
+                  new Paragraph({ spacing:{before:120}, children:[new TextRun({ text: "Signature: ________________________________________________" })] }),
+                  new Paragraph({ children:[new TextRun({ text: "Date Accomplished: _______________________________________" })] })
+                ]}),
+                new TableCell({ width:{size:32,type:WidthType.PERCENTAGE}, children:[
+                  new Paragraph({ spacing:{after:120}, alignment:AlignmentType.CENTER, children:[new TextRun({ text: "PHOTO", bold:true, size:16 })] }),
+                  new Paragraph({ alignment:AlignmentType.CENTER, children:[new TextRun({ text: "Passport-size latest photo" })] }),
+                  new Paragraph({ alignment:AlignmentType.CENTER, children:[new TextRun({ text: "(4.5 cm x 3.5 cm)" })] }),
+                  new Paragraph({ spacing:{before:240, after:120}, alignment:AlignmentType.CENTER, children:[new TextRun({ text: "RIGHT THUMBMARK", bold:true })] }),
+                  new Paragraph({ spacing:{before:160}, alignment:AlignmentType.CENTER, children:[new TextRun({ text: "SUBSCRIBED AND SWORN to before me this ___ day of __________, ______ at __________________, Philippines." })] }),
+                  new Paragraph({ spacing:{before:120}, alignment:AlignmentType.CENTER, children:[new TextRun({ text: "Administering Officer" })] })
+                ]})
+              ]})
+            ]
+          }),
           mkHeading("IX. Applications"),
           mkGrid(["Position","Status","Date Applied","Remarks"], applicationRows),
           mkHeading("X. Submitted Documents"),
@@ -1904,6 +2262,10 @@ export default function Applicants() {
       (c) => c.fullName.trim() || c.dateOfBirth
     );
     const apps = getApplicantApplications(applicant.id);
+
+    const c4Questions = {
+      q42: "I declare under oath that I have personally accomplished this Personal Data Sheet which is a true, correct and complete statement pursuant to the provisions of pertinent laws, rules and regulations of the Republic of the Philippines. I authorize the agency head/authorized representative to verify/validate the contents stated herein. I agree that any misrepresentation made in this document and its attachments shall cause the filing of administrative and/or criminal case/s against me."
+    };
 
     // Name parts
     const np = splitFullName(applicant.fullName || "");
@@ -2007,7 +2369,7 @@ export default function Applicants() {
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: Arial, sans-serif; font-size: 8pt; line-height: 1.3; background: #fff; color: #000; }
             .page { width: 8.27in; margin: 0 auto; padding: 8mm; page-break-after: always; }
-            .page:last-child { page-break-after: auto; }
+            .page:last-child { padding: 4mm 8mm 3mm; page-break-after: auto; }
             table.pds { width: 100%; border-collapse: collapse; }
             table.pds td, table.pds th { border: 0.3px solid #555; }
             .sec-row td { background: #404040; color: white; font-weight: bold; font-size: 8pt; padding: 3px 5px; }
@@ -2016,7 +2378,7 @@ export default function Applicants() {
             @media print {
               body { margin: 0; }
               .page { padding: 8mm; page-break-after: always; }
-              .page:last-child { page-break-after: auto; }
+              .page:last-child { padding: 4mm 8mm 3mm; page-break-after: auto; }
             }
           </style>
         </head>
@@ -2152,6 +2514,18 @@ export default function Applicants() {
                 ${hdr("DATE OF BIRTH (mm/dd/yyyy)", "width:45%;")}
               </tr>
               ${childPadded.map(c => `<tr>${dc(c.fullName)}${dc(c.dateOfBirth)}</tr>`).join("")}
+
+              <!-- Page 1 signature footer — directly connected to last row -->
+              <tr><td colspan="100" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:14px;max-height:14px;overflow:hidden;white-space:nowrap;">
+                (Continue on separate sheet if necessary)
+              </td></tr>
+              <tr>
+                <td colspan="19" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">SIGNATURE</td>
+                <td colspan="48" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">(wet signature/e-signature/digital certificate)</td>
+                <td colspan="15" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">DATE</td>
+                <td colspan="18" style="padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;"></td>
+              </tr>
+              <tr><td colspan="100" style="font-size:5pt;color:#666;text-align:right;padding:1px 5px 0;border:none;">CS FORM 212 (Revised 2025), Page 1 of 4</td></tr>
             </table>
           </div>
 
@@ -2209,6 +2583,18 @@ export default function Applicants() {
                   ${dc(r.statusOfAppointment)}
                   ${dc(r.isGovtService === "Y" ? "Yes" : r.isGovtService === "N" ? "No" : "")}
                 </tr>`).join("")}
+
+              <!-- Page 2 signature footer — directly connected to last row -->
+              <tr><td colspan="100" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:14px;max-height:14px;overflow:hidden;white-space:nowrap;">
+                (Continue on separate sheet if necessary)
+              </td></tr>
+              <tr>
+                <td colspan="19" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">SIGNATURE</td>
+                <td colspan="48" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">(wet signature/e-signature/digital certificate)</td>
+                <td colspan="15" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">DATE</td>
+                <td colspan="18" style="padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;"></td>
+              </tr>
+              <tr><td colspan="100" style="font-size:5pt;color:#666;text-align:right;padding:1px 5px 0;border:none;">CS FORM 212 (Revised 2025), Page 2 of 4</td></tr>
             </table>
           </div>
 
@@ -2255,54 +2641,171 @@ export default function Applicants() {
                   ${dc(r.specialSkillsHobbies)}${dc(r.nonAcademicDistinctionsRecognition)}${dc(r.membershipsAssociationOrganization)}
                 </tr>`).join("")}
 
-              <!-- References -->
-              <tr><td colspan="100" style="padding:0;vertical-align:top;border:0.3px solid #555;">
-                <div style="font-size:6.5pt;font-weight:bold;color:#333;padding:3px 5px 1px 5px;">REFERENCES (Person not related by consanguinity or affinity to applicant/appointee)</div>
-                <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
-                  <tr>
-                    ${hdr("NAME", "width:40%;")}
-                    ${hdr("ADDRESS", "width:40%;")}
-                    ${hdr("TEL. NO.", "width:20%;")}
-                  </tr>
-                  <tr>${dc("")}${dc("")}${dc("")}</tr>
-                  <tr>${dc("")}${dc("")}${dc("")}</tr>
-                  <tr>${dc("")}${dc("")}${dc("")}</tr>
-                </table>
-                <div style="font-size:7.5pt;padding:4px 5px 2px 5px;min-height:16px;">
-                  ${applicant.referencesInfo || ""}
-                </div>
+              <!-- Page 3 signature footer — directly connected to last row -->
+              <tr><td colspan="100" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:14px;max-height:14px;overflow:hidden;white-space:nowrap;">
+                (Continue on separate sheet if necessary)
               </td></tr>
-
-              <!-- Declaration -->
-              <tr><td colspan="100" style="padding:6px 8px;border:0.3px solid #555;">
-                <div style="font-size:6.5pt;font-style:italic;margin-bottom:6px;">
-                  I declare under oath that I have personally accomplished this Personal Data Sheet which is a true, correct and complete statement pursuant to the provisions of pertinent laws, rules and regulations of the Republic of the Philippines. I authorize the agency head/authorized representative to verify/validate the contents stated herein. I agree that any misrepresentation made in this document and its attachments shall cause the filing of administrative and/or criminal case/s against me.
-                </div>
-                <div style="display:flex;justify-content:space-between;padding:10px 0 0 0;">
-                  <div style="text-align:center;width:45%;">
-                    <div style="border-top:1px solid #333;margin-top:35px;"></div>
-                    <div style="font-size:7pt;margin-top:2px;">Signature</div>
-                  </div>
-                  <div style="text-align:center;width:45%;">
-                    <div style="border-top:1px solid #333;margin-top:35px;"></div>
-                    <div style="font-size:7pt;margin-top:2px;">Date Accomplished</div>
-                  </div>
-                </div>
-                <div style="margin-top:10px;border:0.5px solid #555;padding:4px;">
-                  <div style="font-size:7pt;font-weight:bold;margin-bottom:4px;">SUBSCRIBED AND SWORN to before me this ___ day of ____________, _______ at ________________________, Philippines.</div>
-                  <div style="display:flex;justify-content:space-between;margin-top:12px;">
-                    <div style="text-align:center;width:45%;">
-                      <div style="border-top:1px solid #333;margin-top:20px;"></div>
-                      <div style="font-size:7pt;">Administering Officer</div>
-                    </div>
-                    <div style="text-align:center;width:45%;">
-                      <div style="border-top:1px solid #333;margin-top:20px;"></div>
-                      <div style="font-size:7pt;">Position/Title/Appointment</div>
-                    </div>
-                  </div>
-                </div>
-              </td></tr>
+              <tr>
+                <td colspan="19" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">SIGNATURE</td>
+                <td colspan="48" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">(wet signature/e-signature/digital certificate)</td>
+                <td colspan="15" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">DATE</td>
+                <td colspan="18" style="padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;"></td>
+              </tr>
+              <tr><td colspan="100" style="font-size:5pt;color:#666;text-align:right;padding:1px 5px 0;border:none;">CS FORM 212 (Revised 2025), Page 3 of 4</td></tr>
             </table>
+          </div>
+
+          <!-- ═══════════════════════════════════════════════════════ PAGE 4 -->
+          <div class="page">
+            <table class="pds">
+              <tr>
+                <td colspan="69" style="padding:0;vertical-align:top;border:0.3px solid #555;">
+                  <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+                    <tr>
+                      <td style="width:72%;padding:4px 5px;vertical-align:top;border-right:0.3px solid #555;font-size:6.7pt;">
+                        <div style="font-weight:bold;">34. Are you related by consanguinity or affinity to the appointing or recommending authority, or to the chief of bureau or office or to the person who has immediate supervision over you in the Office, Bureau or Department where you will be appointed?</div>
+                        <div style="padding-top:4px;">a. within the third degree?</div>
+                        <div style="padding-top:4px;">b. within the fourth degree (for Local Government Unit - Career Employees)?</div>
+                      </td>
+                      <td style="width:28%;padding:4px 5px;vertical-align:top;font-size:6.5pt;">
+                        <div>[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div style="padding-top:6px;">[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div style="padding-top:4px;">If YES, give details: __________________</div>
+                        <div style="border-top:0.3px solid #555;margin-top:3px;"></div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;border-right:0.3px solid #555;font-size:6.7pt;">
+                        <div style="font-weight:bold;">35. a. Have you ever been found guilty of any administrative offense?</div>
+                        <div style="padding-top:8px;">b. Have you been criminally charged before any court?</div>
+                      </td>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;font-size:6.5pt;">
+                        <div>[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div style="padding-top:4px;">If YES, give details: ____________________________</div>
+                        <div style="padding-top:4px;">Date Filed: __________________</div>
+                        <div>Status of Case/s: __________________</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;border-right:0.3px solid #555;font-size:6.7pt;">
+                        <div style="font-weight:bold;">36. Have you ever been convicted of any crime or violation of any law, decree, ordinance or regulation by any court or tribunal?</div>
+                      </td>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;font-size:6.5pt;">
+                        <div>[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div style="padding-top:4px;">If YES, give details: ____________________________</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;border-right:0.3px solid #555;font-size:6.7pt;">
+                        <div style="font-weight:bold;">37. Have you ever been separated from the service in any of the following modes: resignation, retirement, dropped from the rolls, dismissal, termination, end of term, finished contract or phased out (abolition) in the public or private sector?</div>
+                      </td>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;font-size:6.5pt;">
+                        <div>[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div style="padding-top:4px;">If YES, give details: ____________________________</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;border-right:0.3px solid #555;font-size:6.7pt;">
+                        <div style="font-weight:bold;">38. a. Have you ever been a candidate in a national or local election held within the last year (except Barangay election)?</div>
+                        <div style="padding-top:8px;">b. Have you resigned from the government service during the three (3)-month period before the last election to promote/actively campaign for a national or local candidate?</div>
+                      </td>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;font-size:6.5pt;">
+                        <div>[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div style="padding-top:4px;">If YES, give details: ____________________________</div>
+                        <div style="padding-top:6px;">[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div>If YES, give details: ____________________________</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;border-right:0.3px solid #555;font-size:6.7pt;">
+                        <div style="font-weight:bold;">39. Have you acquired the status of an immigrant or permanent resident of another country?</div>
+                      </td>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;font-size:6.5pt;">
+                        <div>[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div style="padding-top:4px;">If YES, give details (country): __________________</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;border-right:0.3px solid #555;font-size:6.6pt;">
+                        <div style="font-weight:bold;">40. Pursuant to: (a) Indigenous People's Act (RA 8371); (b) Magna Carta for Disabled Persons (RA 7277, as amended); and (c) Expanded Solo Parents Welfare Act (RA 11861), please answer the following items:</div>
+                        <div style="padding-top:5px;">a. Are you a member of any indigenous group?</div>
+                        <div>b. Are you a person with disability?</div>
+                        <div>c. Are you a solo parent?</div>
+                      </td>
+                      <td style="padding:4px 5px;vertical-align:top;border-top:0.3px solid #555;font-size:6.3pt;">
+                        <div>[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div>If YES, please specify: __________________</div>
+                        <div style="padding-top:4px;">[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div>If YES, please specify ID No: __________________</div>
+                        <div style="padding-top:4px;">[ ] YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ ] NO</div>
+                        <div>If YES, please specify ID No: __________________</div>
+                      </td>
+                    </tr>
+
+                    <!-- 41. References with photo box on the right -->
+                    <tr>
+                      <td style="padding:0;vertical-align:top;border-top:0.3px solid #555;border-right:0.3px solid #555;">
+                        <div style="font-size:6.5pt;font-weight:bold;padding:3px 5px 1px 5px;">41. REFERENCES (Person not related by consanguinity or affinity to applicant/appointee)</div>
+                        <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+                          <tr>
+                            ${hdr("NAME", "width:30%;")}
+                            ${hdr("OFFICE / RESIDENTIAL ADDRESS", "width:44%;")}
+                            ${hdr("CONTACT NO. AND/OR EMAIL", "width:26%;")}
+                          </tr>
+                          <tr>${dc("")}${dc("")}${dc("")}</tr>
+                          <tr>${dc("")}${dc("")}${dc("")}</tr>
+                          <tr>${dc("")}${dc("")}${dc("")}</tr>
+                        </table>
+                      </td>
+                      <td rowspan="2" style="padding:0;vertical-align:top;border-top:0.3px solid #555;">
+                        <div style="height:92px;border-bottom:0.3px solid #555;padding:5px;text-align:center;display:flex;flex-direction:column;justify-content:center;gap:2px;">
+                          <div style="font-size:5.5pt;line-height:1.1;">Passport-sized unfiltered</div>
+                          <div style="font-size:5.5pt;line-height:1.1;">digital picture taken within</div>
+                          <div style="font-size:5.5pt;line-height:1.1;">the last 3 months</div>
+                          <div style="font-size:5.5pt;line-height:1.1;">4.5 cm &times; 3.5 cm</div>
+                          <div style="font-size:7pt;font-weight:bold;margin-top:4px;">PHOTO</div>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <!-- 42. Declaration -->
+                    <tr>
+                      <td style="padding:5px 5px;vertical-align:top;border-top:0.3px solid #555;border-right:0.3px solid #555;font-size:6.6pt;">
+                        <div style="font-weight:bold;margin-bottom:3px;">42. I declare under oath that I have personally accomplished this Personal Data Sheet which is a true, correct and complete statement pursuant to the provisions of pertinent laws, rules and regulations of the Republic of the Philippines. I authorize the agency head/authorized representative to verify/validate the contents stated herein. I agree that any misrepresentation made in this document and its attachments shall cause the filing of administrative/criminal case/s against me.</div>
+                        <div style="margin-top:8px;">Signature _________________________________________________</div>
+                        <div style="margin-top:6px;">Government Issued ID: ___________________________________</div>
+                        <div style="margin-top:4px;">ID/License/Passport No.: ________________________________</div>
+                        <div style="margin-top:4px;">Date/Place of Issuance: _________________________________</div>
+                      </td>
+                    </tr>
+
+                    <!-- Bottom row: Signature box | Right Thumbmark | Sworn strip -->
+                    <tr>
+                      <td colspan="2" style="padding:0;vertical-align:top;border-top:0.3px solid #555;">
+                        <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+                          <tr>
+                            <td style="width:44%;padding:10px 5px 4px;text-align:center;border-right:0.3px solid #555;vertical-align:top;">
+                              <div style="border-top:0.3px solid #555;margin:0 8px 2px;"></div>
+                              <div style="font-size:6.1pt;">Signature (Sign inside the box)</div>
+                              <div style="font-size:6.1pt;">Date Accomplished</div>
+                            </td>
+                            <td style="width:30%;padding:14px 5px 4px;text-align:center;border-right:0.3px solid #555;vertical-align:bottom;">
+                              <div style="font-size:6.5pt;font-weight:bold;">Right Thumbmark</div>
+                            </td>
+                            <td style="width:26%;padding:5px 5px;text-align:center;vertical-align:top;font-size:5.8pt;line-height:1.2;">
+                              SUBSCRIBED AND SWORN to before me this ________ day of ____________, ________ at _____________________, affiant exhibiting his/her validly issued government ID as indicated above.
+                              <div style="margin-top:10px;border-top:0.3px solid #555;padding-top:2px;">Person Administering Oath</div>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+
+                  </table>
+                </td>
+              </tr>
+            </table>
+            <div style="font-size:5pt;color:#666;text-align:right;padding:2px 0 0;">CS FORM 212 (Revised 2025), Page 4 of 4</div>
           </div>
 
         </body>
