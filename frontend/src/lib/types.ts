@@ -157,6 +157,10 @@ export interface Evaluation {
   serviceOrientationAvg?: number;
   secondLevelTotal?: number;
   interviewTotal?: number;
+  // UI-only fields added by the frontend
+  displayLevel?: "first_level" | "second_level";
+  isTeaching?: boolean;
+  displayScore?: number;
   totalScore: number;
   remarks: string;
   evaluatedBy: string;

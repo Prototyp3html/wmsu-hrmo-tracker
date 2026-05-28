@@ -88,7 +88,7 @@ const TEACHING_GROUPS = [
 
 const TEACHING_CRITERIA = Object.fromEntries(
   TEACHING_GROUPS.flatMap((group) =>
-    Object.entries(group.items).map(([key, item]) => [key, { name: item.name, max: item.max }])
+    Object.entries(group.items as Record<string, { name: string; max: number; weight?: number }>).map(([key, item]) => [key, { name: item.name, max: item.max }])
   )
 ) as Record<string, { name: string; max: number }>;
 
@@ -220,7 +220,7 @@ function calculateTotalScore(
     let totalWeight = 0;
     let weightedSum = 0;
     criteria.forEach((group) => {
-      Object.entries(group.items).forEach(([key, item]) => {
+      Object.entries(group.items as Record<string, { name: string; max: number; weight: number }>).forEach(([key, item]) => {
         const scores = panelists.map((p) => p.scores[key]).filter((s): s is number => s !== undefined);
         if (scores.length === 0) return;
         const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
@@ -242,8 +242,8 @@ function calculateTotalScore(
 
 function calculateTeachingSectionPercentages(panelists: Array<{ scores: PanelistScores }>) {
   return TEACHING_GROUPS.map((group, groupIndex) => {
-    const itemEntries = Object.entries(group.items);
-    const highestPossible = itemEntries.reduce((sum, [, item]) => sum + item.max, 0);
+  const itemEntries = Object.entries(group.items as Record<string, { name: string; max: number; weight?: number }>);
+  const highestPossible = itemEntries.reduce((sum, [, item]) => sum + item.max, 0);
 
     const averageTotal = itemEntries.reduce((sum, [key]) => {
       const scores = panelists
@@ -270,9 +270,9 @@ function calculateTeachingSectionPercentages(panelists: Array<{ scores: Panelist
 }
 
 function calculateTeachingPanelistSectionScores(panelists: Array<{ name: string; scores: PanelistScores }>) {
-  return panelists.map((panelist) => {
+    return panelists.map((panelist) => {
     const sections = TEACHING_GROUPS.map((group, groupIndex) => {
-      const itemEntries = Object.entries(group.items);
+      const itemEntries = Object.entries(group.items as Record<string, { name: string; max: number; weight?: number }>);
       const highestPossible = itemEntries.reduce((sum, [, item]) => sum + item.max, 0);
       const totalScore = itemEntries.reduce((sum, [key]) => sum + (panelist.scores?.[key] ?? 0), 0);
       const weightedScore = highestPossible > 0 ? (totalScore / highestPossible) * group.weight : 0;
@@ -302,9 +302,9 @@ function calculateGroupedPanelistSectionScores(
   groups: Array<{ title: string; weight: number; items: Record<string, { name: string; max: number; weight: number }> }>,
   scorePrefix = ""
 ) {
-  return panelists.map((panelist) => {
+    return panelists.map((panelist) => {
     const sections = groups.map((group, groupIndex) => {
-      const itemEntries = Object.entries(group.items);
+      const itemEntries = Object.entries(group.items as Record<string, { name: string; max: number; weight: number }>);
       const highestPossible = itemEntries.reduce((sum, [, item]) => sum + item.max, 0);
       const totalScore = itemEntries.reduce((sum, [key]) => sum + (panelist.scores?.[`${scorePrefix}${key}`] ?? 0), 0);
       const weightedScore = highestPossible > 0 ? (totalScore / highestPossible) * group.weight : 0;
@@ -370,9 +370,10 @@ interface EvalFormProps {
     | Array<{ title: string; weight: number; items: Record<string, { name: string; max: number; weight: number }>}>
     ;
   level: "first_level" | "second_level";
+  scorePrefix?: string;
 }
 
-function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
+function EvalForm({ panelists, setPanelists, criteria, level, scorePrefix = "" }: EvalFormProps) {
   const activeCriteria = criteria ?? (level === "first_level" ? FIRST_LEVEL_CRITERIA : SECOND_LEVEL_CRITERIA);
   const isGrouped = Array.isArray(activeCriteria);
   const [showCountSelector, setShowCountSelector] = useState(panelists.length === 1 && !panelists[0].name);
@@ -494,7 +495,7 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
                   <div key={gIdx} className="p-3 bg-muted/40 rounded-lg border border-border/30">
                     <div className="text-sm font-semibold mb-2">{group.title} <span className="text-xs text-muted-foreground">({group.weight}%)</span></div>
                     <div className="grid grid-cols-2 gap-3">
-                      {Object.entries(group.items).map(([key, data]) => (
+                            {Object.entries(group.items as Record<string, { name: string; max: number }>).map(([key, data]) => (
                         <div key={key} className="space-y-1">
                           <Label className="text-xs flex justify-between">
                             <span>{data.name}</span>
@@ -507,7 +508,7 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
                             min={0}
                             max={data.max}
                             placeholder={`0-${data.max}`}
-                            value={panelist.scores[key] ?? ""}
+                            value={panelist.scores[`${scorePrefix}${key}`] ?? ""}
                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                             onChange={(e) => {
                               let val = e.target.value ? Number(e.target.value) : undefined;
@@ -517,7 +518,7 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
                               }
                               const updated = panelists.map((p, i) =>
                                 i === pIdx
-                                  ? { ...p, scores: { ...p.scores, [key]: val } }
+                                  ? { ...p, scores: { ...p.scores, [`${scorePrefix}${key}`]: val } }
                                   : p
                               );
                               setPanelists(updated);
@@ -549,7 +550,7 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
                               <div key={gIdx} className="mb-2">
                                 <div className="text-sm font-semibold mb-2">{group.title} <span className="text-xs text-muted-foreground">({group.weight}%)</span></div>
                                 <div className="grid grid-cols-2 gap-3">
-                                  {Object.entries(group.items).map(([key, data]) => (
+                                  {Object.entries(group.items as Record<string, { name: string; max: number }>).map(([key, data]) => (
                                     <div key={key} className="space-y-1">
                                       <Label className="text-xs flex justify-between">
                                         <span>{data.name}</span>
@@ -589,7 +590,7 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
                   </Dialog>
                 </div>
               </div>
-            ) : (
+              ) : (
               <div className="grid grid-cols-2 gap-3 mt-3 p-3 bg-muted/40 rounded-lg border border-border/30">
                 {Object.entries(activeCriteria as Record<string, any>).map(([key, data]) => (
                   <div key={key} className="space-y-1">
@@ -604,7 +605,7 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
                       min={0}
                       max={data.max}
                       placeholder={`0-${data.max}`}
-                      value={panelist.scores[key] ?? ""}
+                      value={panelist.scores[`${scorePrefix}${key}`] ?? ""}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                       onChange={(e) => {
                         let val = e.target.value ? Number(e.target.value) : undefined;
@@ -614,7 +615,7 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
                         }
                         const updated = panelists.map((p, i) =>
                           i === pIdx
-                            ? { ...p, scores: { ...p.scores, [key]: val } }
+                            ? { ...p, scores: { ...p.scores, [`${scorePrefix}${key}`]: val } }
                             : p
                         );
                         setPanelists(updated);
@@ -682,6 +683,10 @@ export default function Evaluations() {
   const [interviewTargetId, setInterviewTargetId] = useState<string | null>(null);
   const [interviewTargetPositionLevel, setInterviewTargetPositionLevel] = useState<"first_level" | "second_level" | null>(null);
   const [interviewPanelists, setInterviewPanelists] = useState<FormPanelist[]>([]);
+  const handleInterviewAddPanelist = () => setInterviewPanelists((prev) => [...prev, { id: Math.random().toString(36), name: "", scores: {} }]);
+  const handleInterviewRemovePanelist = (id: string) => {
+    setInterviewPanelists((prev) => (prev.length > 1 ? prev.filter((p) => p.id !== id) : prev));
+  };
   // Edit form state for panelists
   const [editPanelists, setEditPanelists] = useState<FormPanelist[]>([]);
   const [editRemarks, setEditRemarks] = useState("");
@@ -942,7 +947,7 @@ export default function Evaluations() {
 
       const criteria = exportGroups
         ? Object.fromEntries(exportGroups.flatMap((group) =>
-            Object.entries(group.items).map(([key, item]) => [key, { name: item.name, max: item.max }])
+            Object.entries(group.items as Record<string, { name: string; max: number; weight?: number }>).map(([key, item]) => [key, { name: item.name, max: item.max }])
           ))
         : evaluation.displayLevel === "first_level"
           ? FIRST_LEVEL_CRITERIA
@@ -950,7 +955,7 @@ export default function Evaluations() {
 
       const groupedItems = exportGroups
         ? exportGroups.flatMap((group, groupIndex) =>
-            Object.entries(group.items).map(([key, item], itemIndex) => ({
+            Object.entries(group.items as Record<string, { name: string; max: number; weight?: number }>).map(([key, item], itemIndex) => ({
               key,
               name: item.name,
               code: `${String.fromCharCode(65 + groupIndex)}${itemIndex + 1}`
@@ -967,7 +972,7 @@ export default function Evaluations() {
       const criterionKeys = exportGroups ? groupedItems.map((item) => item.key) : Object.keys(criteria);
       const headers = exportGroups
         ? ["Panelist", ...groupedItems.map((item) => item.code)]
-        : ["Panelist", ...Object.entries(criteria).map(([, data]) => data.name)];
+        : ["Panelist", ...Object.entries(criteria as Record<string, { name: string; max: number }>).map(([, data]) => data.name)];
       const scorePrefix = isInterviewExport ? "iv_" : "";
       const rows = (evaluation.panelists ?? []).map((panelist) => [
         panelist.name,
@@ -1040,7 +1045,7 @@ export default function Evaluations() {
 
         const averages = calculateAverages(evaluation.panelists ?? [], criteria);
         const averageHeaders = ["Criterion", "Average Score"];
-        const averageRows = Object.entries(criteria).map(([key, data]) => {
+        const averageRows = Object.entries(criteria as Record<string, { name: string; max: number }>).map(([key, data]) => {
           const avg = averages[`${key}Avg`];
           return [data.name, avg !== undefined ? avg.toFixed(2) : "—"];
         });
@@ -1439,9 +1444,13 @@ export default function Evaluations() {
                 criteria={(() => {
                   const editingApp = editingApplication;
                   const vacTitle = editingApp ? (jobVacancies.find((j) => j.id === editingApp.vacancyId)?.positionTitle ?? "") : "";
-                  return /teacher|instructor|lecturer|professor|tutor/i.test(vacTitle) ? TEACHING_GROUPS : undefined;
+                  const isTeachingTitle = /teacher|instructor|lecturer|professor|tutor/i.test(vacTitle);
+                  // If this evaluation already has an interview result, show the interview grouped form (with iv_ prefix)
+                  if (isTeachingTitle && editingEvaluation.interviewTotal != null) return INTERVIEW_GROUPS;
+                  return isTeachingTitle ? TEACHING_GROUPS : undefined;
                 })()}
                 level={editingEvaluation.positionLevel as "first_level" | "second_level"}
+                scorePrefix={editingEvaluation.interviewTotal != null ? "iv_" : ""}
               />
             )}
 
@@ -1495,16 +1504,43 @@ export default function Evaluations() {
             <DialogDescription>Enter interview scores for the panelists. These will be saved as the interview result.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <div />
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={handleInterviewAddPanelist}>
+                  <Plus className="w-4 h-4 mr-2" /> Add Panelist
+                </Button>
+              </div>
+            </div>
             {(interviewPanelists || []).map((panelist, pIdx) => (
               <div key={panelist.id} className="p-3 bg-background border border-border/60 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <Label className="text-xs font-semibold">Panelist {pIdx + 1}: {panelist.name || "(name)"}</Label>
+                <div className="flex items-end justify-between mb-2 gap-3">
+                  <div className="flex-1">
+                    <Label className="text-xs font-semibold">Panelist {pIdx + 1} Name</Label>
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      spellCheck="false"
+                      placeholder="Enter panelist name"
+                      value={panelist.name}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      onChange={(e) => {
+                        const updated = interviewPanelists.map((p, i) => (i === pIdx ? { ...p, name: e.target.value } : p));
+                        setInterviewPanelists(updated);
+                      }}
+                    />
+                  </div>
+                  {interviewPanelists.length > 1 && (
+                    <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => handleInterviewRemovePanelist(panelist.id)}>
+                      <X className="w-4 h-4" />
+                    </Button>
+                  )}
                 </div>
                 {INTERVIEW_GROUPS.map((group, gIdx) => (
                   <div key={gIdx} className="mb-2">
                     <div className="text-sm font-semibold mb-2">{group.title} <span className="text-xs text-muted-foreground">({group.weight}%)</span></div>
                     <div className="grid grid-cols-2 gap-3">
-                      {Object.entries(group.items).map(([key, data]) => (
+                      {Object.entries(group.items as Record<string, { name: string; max: number }>).map(([key, data]) => (
                         <div key={key} className="space-y-1">
                           <Label className="text-xs flex justify-between">
                             <span>{data.name}</span>
@@ -1695,7 +1731,7 @@ function calculateInterviewWeightedTotal(panelists: Array<{ scores: PanelistScor
   let weightedSum = 0;
 
   INTERVIEW_GROUPS.forEach((group) => {
-    Object.entries(group.items).forEach(([key, item]) => {
+    Object.entries(group.items as Record<string, { name: string; max: number; weight: number }>).forEach(([key, item]) => {
       const scores = panelists.map((p) => p.scores[`iv_${key}`]).filter((s): s is number => s !== undefined);
       if (scores.length === 0) return;
       const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
