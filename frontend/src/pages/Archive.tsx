@@ -132,12 +132,6 @@ const AVAILABLE_PLACEHOLDERS = [
   { label: "Interview Venue", value: "{{interviewVenue}}" },
   { label: "Final Eval Date", value: "{{finalEvalDate}}" },
   { label: "Final Eval Venue", value: "{{finalEvalVenue}}" },
-  // Common letter code placeholders
-  { label: "WMSU Letter Code 002.02", value: "{{WMSU-HRMO-LET-002.02}}" },
-  { label: "WMSU Letter Code 003.02", value: "{{WMSU-HRMO-LET-003.02}}" },
-  { label: "WMSU Letter Code 004.02", value: "{{WMSU-HRMO-LET-004.02}}" },
-  { label: "WMSU Letter Code 004A.00", value: "{{WMSU-HRMO-LET-004A.00}}" },
-  { label: "WMSU Letter Code 007.00", value: "{{WMSU-HRMO-LET-007.00}}" }
 ] as const;
 
 // Placeholders are optional, but once inserted they should not be deleted accidentally.
