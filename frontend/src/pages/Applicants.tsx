@@ -1328,13 +1328,14 @@ export default function Applicants() {
           pdf.setFont("helvetica", "normal");
           pdf.setFontSize(4.9);
           pdf.setTextColor(200, 0, 0);
-          pdf.text("(wet signature/e-signature/digital certificate)", ML + labelW + noteW / 2, y + 4.1, { align: "center", maxWidth: noteW - 3 });
+          pdf.text("", ML + labelW + noteW / 2, y + 4.1, { align: "center", maxWidth: noteW - 3 });
 
-          // Page number footer (bottom-right, outside the band)
+          // Page number footer (bottom-right, below the band)
           pdf.setFont("helvetica", "normal");
           pdf.setFontSize(5.1);
           pdf.setTextColor(100, 100, 100);
-          pdf.text(`CS FORM 212 (Revised 2025), Page ${worksheetPage} of 4`, ML + CW, y + bandH - 1.5, { align: "right" });
+          const footerY = Math.min(PH - 4, y + bandH + 2.5);
+          pdf.text(`CS FORM 212 (Revised 2025), Page ${worksheetPage} of 4`, ML + CW, footerY, { align: "right" });
           pdf.setTextColor(0, 0, 0);
           y += bandH;
         };
@@ -2019,7 +2020,7 @@ export default function Applicants() {
         // Inner signature area (top half of box)
         borderR(sigX + 3, c4Y + 2, sigBoxW - 6, botH * 0.5, 0.3);
         pdf.setFontSize(4.8); pdf.setFont("helvetica", "normal"); pdf.setTextColor(...LGRAY);
-        pdf.text("(wet signature/e-signature/digital certificate)",
+        pdf.text("",
           sigX + sigBoxW / 2, c4Y + 2 + botH * 0.5 / 2,
           { align: "center", maxWidth: sigBoxW - 8 }
         );
@@ -2063,7 +2064,7 @@ export default function Applicants() {
         // Page 4 footer
         pdf.setFont("helvetica", "normal"); pdf.setFontSize(5.1);
         pdf.setTextColor(100, 100, 100);
-        pdf.text(`CS FORM 212 (Revised 2025), Page 4 of 4`, ML + CW, PH - 4, { align: "right" });
+        pdf.text(`CS FORM 212 (Revised 2025), Page 4 of 4`, ML + CW, PH - 6, { align: "right" });
         pdf.setTextColor(0, 0, 0);
 
                 pdf.save(`${fileNameBase}_PDS.pdf`);
@@ -2521,12 +2522,12 @@ export default function Applicants() {
               </td></tr>
               <tr>
                 <td colspan="19" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">SIGNATURE</td>
-                <td colspan="48" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">(wet signature/e-signature/digital certificate)</td>
+                <td colspan="48" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;"></td>
                 <td colspan="15" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">DATE</td>
                 <td colspan="18" style="padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;"></td>
               </tr>
-              <tr><td colspan="100" style="font-size:5pt;color:#666;text-align:right;padding:1px 5px 0;border:none;">CS FORM 212 (Revised 2025), Page 1 of 4</td></tr>
             </table>
+            <div style="font-size:5pt;color:#666;text-align:right;padding:2px 1px 0;">CS FORM 212 (Revised 2025), Page 1 of 4</div>
           </div>
 
           <!-- ═══════════════════════════════════════════════════════ PAGE 2 -->
@@ -2590,12 +2591,12 @@ export default function Applicants() {
               </td></tr>
               <tr>
                 <td colspan="19" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">SIGNATURE</td>
-                <td colspan="48" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">(wet signature/e-signature/digital certificate)</td>
+                <td colspan="48" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;"></td>
                 <td colspan="15" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">DATE</td>
                 <td colspan="18" style="padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;"></td>
               </tr>
-              <tr><td colspan="100" style="font-size:5pt;color:#666;text-align:right;padding:1px 5px 0;border:none;">CS FORM 212 (Revised 2025), Page 2 of 4</td></tr>
             </table>
+            <div style="font-size:5pt;color:#666;text-align:right;padding:2px 1px 0;">CS FORM 212 (Revised 2025), Page 2 of 4</div>
           </div>
 
           <!-- ═══════════════════════════════════════════════════════ PAGE 3 -->
@@ -2647,12 +2648,12 @@ export default function Applicants() {
               </td></tr>
               <tr>
                 <td colspan="19" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">SIGNATURE</td>
-                <td colspan="48" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">(wet signature/e-signature/digital certificate)</td>
+                <td colspan="48" style="font-size:5.5pt;font-style:italic;color:#c00;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;"></td>
                 <td colspan="15" style="background:#dcdcdc;font-weight:bold;font-style:italic;font-size:7pt;text-align:center;padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;">DATE</td>
                 <td colspan="18" style="padding:2px 5px;border:0.3px solid #555;height:18px;max-height:18px;overflow:hidden;white-space:nowrap;"></td>
               </tr>
-              <tr><td colspan="100" style="font-size:5pt;color:#666;text-align:right;padding:1px 5px 0;border:none;">CS FORM 212 (Revised 2025), Page 3 of 4</td></tr>
             </table>
+            <div style="font-size:5pt;color:#666;text-align:right;padding:2px 1px 0;">CS FORM 212 (Revised 2025), Page 3 of 4</div>
           </div>
 
           <!-- ═══════════════════════════════════════════════════════ PAGE 4 -->
@@ -2805,7 +2806,7 @@ export default function Applicants() {
                 </td>
               </tr>
             </table>
-            <div style="font-size:5pt;color:#666;text-align:right;padding:2px 0 0;">CS FORM 212 (Revised 2025), Page 4 of 4</div>
+            <div style="font-size:5pt;color:#666;text-align:right;padding:2px 1px 0;">CS FORM 212 (Revised 2025), Page 4 of 4</div>
           </div>
 
         </body>
