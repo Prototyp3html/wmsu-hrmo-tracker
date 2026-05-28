@@ -92,6 +92,72 @@ const TEACHING_CRITERIA = Object.fromEntries(
   )
 ) as Record<string, { name: string; max: number }>;
 
+const INTERVIEW_GROUPS = [
+  {
+    title: "A. Effective Communication Skill",
+    weight: 10,
+    items: {
+      englishLanguageFluency: { name: "English Language Fluency", max: 5, weight: 3 },
+      articulateIdea: { name: "Articulate the Idea effectively", max: 5, weight: 3 },
+      nonverbalCommunication: { name: "Manage nonverbal communication (eye contact, facial expression, posture)", max: 5, weight: 4 }
+    }
+  },
+  {
+    title: "B. Conflict Resolution Skills",
+    weight: 10,
+    items: {
+      preventiveMeasures: { name: "Cite preventive measures/strategies to resolve academic issues", max: 5, weight: 3 },
+      interveneWillingness: { name: "Willingness to intervene/mediate to settle conflict", max: 5, weight: 3 },
+      understandingNeeds: { name: "Understanding of differing needs of students", max: 5, weight: 4 }
+    }
+  },
+  {
+    title: "C. Stress Tolerance",
+    weight: 15,
+    items: {
+      manageStress: { name: "Manage stress while remaining alert and calm", max: 5, weight: 5 },
+      controlEmotions: { name: "Has full control of emotions and behavior", max: 5, weight: 5 },
+      useHumor: { name: "Use humor to reduce tension and put situation in perspective", max: 5, weight: 5 }
+    }
+  },
+  {
+    title: "D. Decision Making Skill",
+    weight: 15,
+    items: {
+      analyzeInfo: { name: "Analyze information before making a decision", max: 5, weight: 5 },
+      discernAbility: { name: "Ability to discern and make quick decisions", max: 5, weight: 5 },
+      practiceJustFair: { name: "Practice just/fair and analyze alternative solutions", max: 5, weight: 5 }
+    }
+  },
+  {
+    title: "E. Analytical Skill",
+    weight: 15,
+    items: {
+      solveProblem: { name: "Ability to solve problems", max: 5, weight: 5 },
+      assessSituation: { name: "Assess the situation insightfully", max: 5, weight: 5 },
+      interpretSkills: { name: "Strong interpretation skills (provide insights into responses)", max: 5, weight: 5 }
+    }
+  },
+  {
+    title: "F. Initiative",
+    weight: 15,
+    items: {
+      selfMotivated: { name: "Intrinsically (self) motivated", max: 5, weight: 5 },
+      variedApproaches: { name: "Shows varied approaches to accomplish tasks", max: 5, weight: 5 },
+      considerOpportunity: { name: "Consider every single opportunity", max: 5, weight: 5 }
+    }
+  },
+  {
+    title: "G. Service Orientation",
+    weight: 20,
+    items: {
+      thinkAsTeam: { name: "Think as a team, not an employee", max: 5, weight: 7 },
+      doMore: { name: "Do more than what was required", max: 5, weight: 7 },
+      possessEfficacy: { name: "Possess efficacy skill (ability to produce intended result)", max: 5, weight: 6 }
+    }
+  }
+];
+
 const ADMIN_CRITERIA_KEYS = new Set([
   ...Object.keys(FIRST_LEVEL_CRITERIA),
   ...Object.keys(SECOND_LEVEL_CRITERIA)
@@ -107,6 +173,11 @@ function hasTeachingScores(panelists: Array<{ scores: PanelistScores }> | undefi
   return panelists.some((panelist) =>
     Object.keys(panelist.scores ?? {}).some((scoreKey) => TEACHING_ONLY_KEYS.has(scoreKey))
   );
+}
+
+function getTeachingInterviewStage(evaluation: { isTeaching?: boolean; interviewTotal?: number | null }) {
+  if (!evaluation.isTeaching) return "";
+  return evaluation.interviewTotal != null ? "Final Interview" : "Demo Interview";
 }
 
 // ─── Helpers (defined once, outside any component) ───────────────────────────
@@ -204,6 +275,38 @@ function calculateTeachingPanelistSectionScores(panelists: Array<{ name: string;
       const itemEntries = Object.entries(group.items);
       const highestPossible = itemEntries.reduce((sum, [, item]) => sum + item.max, 0);
       const totalScore = itemEntries.reduce((sum, [key]) => sum + (panelist.scores?.[key] ?? 0), 0);
+      const weightedScore = highestPossible > 0 ? (totalScore / highestPossible) * group.weight : 0;
+
+      return {
+        code: String.fromCharCode(65 + groupIndex),
+        title: group.title,
+        weight: group.weight,
+        totalScore,
+        highestPossible,
+        weightedScore
+      };
+    });
+
+    const weightedTotal = sections.reduce((sum, section) => sum + section.weightedScore, 0);
+
+    return {
+      panelistName: panelist.name,
+      sections,
+      weightedTotal
+    };
+  });
+}
+
+function calculateGroupedPanelistSectionScores(
+  panelists: Array<{ name: string; scores: PanelistScores }>,
+  groups: Array<{ title: string; weight: number; items: Record<string, { name: string; max: number; weight: number }> }>,
+  scorePrefix = ""
+) {
+  return panelists.map((panelist) => {
+    const sections = groups.map((group, groupIndex) => {
+      const itemEntries = Object.entries(group.items);
+      const highestPossible = itemEntries.reduce((sum, [, item]) => sum + item.max, 0);
+      const totalScore = itemEntries.reduce((sum, [key]) => sum + (panelist.scores?.[`${scorePrefix}${key}`] ?? 0), 0);
       const weightedScore = highestPossible > 0 ? (totalScore / highestPossible) * group.weight : 0;
 
       return {
@@ -425,6 +528,66 @@ function EvalForm({ panelists, setPanelists, criteria, level }: EvalFormProps) {
                     </div>
                   </div>
                 ))}
+                {/* Interview action for teaching evaluations */}
+                <div className="flex justify-end mt-2">
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button type="button" variant="outline" size="sm">Proceed to Interview Evaluation</Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Interview Evaluation</DialogTitle>
+                        <DialogDescription>Enter interview scores for the panelists. These will be merged into the main evaluation.</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-3">
+                        {(panelists || []).map((panelist, pIdx) => (
+                          <div key={panelist.id} className="p-3 bg-background border border-border/60 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="text-xs font-semibold">Panelist {pIdx + 1}: {panelist.name || "(name)"}</Label>
+                            </div>
+                            {INTERVIEW_GROUPS.map((group, gIdx) => (
+                              <div key={gIdx} className="mb-2">
+                                <div className="text-sm font-semibold mb-2">{group.title} <span className="text-xs text-muted-foreground">({group.weight}%)</span></div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  {Object.entries(group.items).map(([key, data]) => (
+                                    <div key={key} className="space-y-1">
+                                      <Label className="text-xs flex justify-between">
+                                        <span>{data.name}</span>
+                                        <span className="text-muted-foreground">/{data.max}</span>
+                                      </Label>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={data.max}
+                                        placeholder={`0-${data.max}`}
+                                        value={panelist.scores[`iv_${key}`] ?? ""}
+                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        onChange={(e) => {
+                                          let val = e.target.value ? Number(e.target.value) : undefined;
+                                          if (val !== undefined) {
+                                            if (val < 0) val = 0;
+                                            if (val > data.max) val = data.max;
+                                          }
+                                          const updated = panelists.map((p, i) =>
+                                            i === pIdx ? { ...p, scores: { ...p.scores, [`iv_${key}`]: val } } : p
+                                          );
+                                          setPanelists(updated);
+                                        }}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-end mt-4">
+                        <Button type="button" onClick={() => { /* Dialog will close automatically via Dialog behavior */ }}>Done</Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3 mt-3 p-3 bg-muted/40 rounded-lg border border-border/30">
@@ -514,6 +677,11 @@ export default function Evaluations() {
   const [formApplicationId, setFormApplicationId] = useState("");
   const [formEvaluationType, setFormEvaluationType] = useState<"administrative" | "teaching">("administrative");
 
+  // Interview dialog state
+  const [showInterviewDialog, setShowInterviewDialog] = useState(false);
+  const [interviewTargetId, setInterviewTargetId] = useState<string | null>(null);
+  const [interviewTargetPositionLevel, setInterviewTargetPositionLevel] = useState<"first_level" | "second_level" | null>(null);
+  const [interviewPanelists, setInterviewPanelists] = useState<FormPanelist[]>([]);
   // Edit form state for panelists
   const [editPanelists, setEditPanelists] = useState<FormPanelist[]>([]);
   const [editRemarks, setEditRemarks] = useState("");
@@ -619,6 +787,18 @@ export default function Evaluations() {
     setShowEdit(true);
   };
 
+  const handleOpenInterview = (evaluation: Evaluation) => {
+    setInterviewTargetId(evaluation.id);
+    setInterviewTargetPositionLevel((evaluation.displayLevel as "first_level" | "second_level") ?? null);
+    const panelists = (evaluation.panelists ?? []).map((p) => ({ id: p.id, name: p.name, scores: { ...p.scores } }));
+    if (panelists.length === 0) {
+      // create a default slot if none exists
+      panelists.push({ id: Math.random().toString(36), name: "", scores: {} });
+    }
+    setInterviewPanelists(panelists);
+    setShowInterviewDialog(true);
+  };
+
   useEffect(() => {
     if (!showEdit || !editingEvaluation) return;
 
@@ -653,16 +833,21 @@ export default function Evaluations() {
         const isTeachingByScores = hasTeachingScores(evaluation.panelists);
         const isTeachingByTitle = /teacher|instructor|lecturer|professor|tutor/i.test(vacancyTitle);
         const isTeachingEval = isTeachingByScores || (!evaluation.panelists?.length && isTeachingByTitle);
+        const displayScore = isTeachingEval
+          ? Number(evaluation.interviewTotal ?? evaluation.totalScore ?? 0)
+          : getAverageScore(evaluation.totalScore ?? 0, (vacancy as any)?.positionLevel ?? evaluation.positionLevel);
+
         return {
           ...evaluation,
           applicantName: application ? getApplicantName(application.applicantId) : "Unknown",
           positionTitle: vacancy?.positionTitle ?? "Unknown position",
           vacancyId: vacancy?.id ?? "",
           displayLevel: (vacancy as any)?.positionLevel ?? evaluation.positionLevel,
-          isTeaching: isTeachingEval
+          isTeaching: isTeachingEval,
+          displayScore
         };
       })
-      .sort((a, b) => b.totalScore - a.totalScore);
+      .sort((a, b) => (b as any).displayScore - (a as any).displayScore);
   }, [evaluations, applications, jobVacancies]);
 
   const filteredEvaluationRows = useMemo(() => {
@@ -678,6 +863,7 @@ export default function Evaluations() {
     try {
       const { jsPDF } = await import("jspdf");
       const isTeachingExport = Boolean(evaluation.isTeaching);
+      const isInterviewExport = isTeachingExport && typeof evaluation.interviewTotal === "number" && evaluation.interviewTotal > 0;
       const pdf = new jsPDF({ orientation: isTeachingExport ? "landscape" : "portrait", unit: "pt", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
@@ -691,12 +877,16 @@ export default function Evaluations() {
         cursorY = margin;
       };
 
-      const teachingPanelistStats = isTeachingExport
-        ? calculateTeachingPanelistSectionScores(evaluation.panelists ?? [])
-        : [];
-      const teachingWeightedTotal = teachingPanelistStats.length
-        ? teachingPanelistStats.reduce((sum, panelist) => sum + panelist.weightedTotal, 0) / teachingPanelistStats.length
-        : 0;
+      const groupedPanelistStats = isInterviewExport
+        ? calculateGroupedPanelistSectionScores(evaluation.panelists ?? [], INTERVIEW_GROUPS, "iv_")
+        : isTeachingExport
+          ? calculateTeachingPanelistSectionScores(evaluation.panelists ?? [])
+          : [];
+      const finalWeightedTotal = isInterviewExport
+        ? Number(evaluation.interviewTotal ?? 0)
+        : (groupedPanelistStats.length
+          ? groupedPanelistStats.reduce((sum, panelist) => sum + panelist.weightedTotal, 0) / groupedPanelistStats.length
+          : 0);
 
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(18);
@@ -722,13 +912,13 @@ export default function Evaluations() {
       pdf.text(`Position: ${evaluation.positionTitle}`, margin + 10, cursorY + 6);
       cursorY += 14;
       pdf.text(
-        `Assessment: ${evaluation.isTeaching ? "Teaching Demonstration Assessment" : evaluation.displayLevel === "second_level" ? "Second Level Administrative Position Assessment" : "First Level Administrative Position Assessment"}`,
+        `Assessment: ${isInterviewExport ? "Final Interview Evaluation" : evaluation.isTeaching ? "Teaching Demonstration Assessment" : evaluation.displayLevel === "second_level" ? "Second Level Administrative Position Assessment" : "First Level Administrative Position Assessment"}`,
         margin + 10,
         cursorY + 6
       );
       cursorY += 14;
       pdf.text(
-        `Average Score: ${evaluation.isTeaching ? teachingWeightedTotal.toFixed(2) : getAverageScore(evaluation.totalScore, evaluation.displayLevel).toFixed(2)}`,
+        `${isInterviewExport ? "Interview Score" : "Average Score"}: ${isInterviewExport ? finalWeightedTotal.toFixed(2) : evaluation.isTeaching ? finalWeightedTotal.toFixed(2) : getAverageScore(evaluation.totalScore, evaluation.displayLevel).toFixed(2)}`,
         margin + 10,
         cursorY + 6
       );
@@ -744,14 +934,22 @@ export default function Evaluations() {
       pdf.line(margin, cursorY, pageWidth - margin, cursorY);
       cursorY += 20;
 
-      const criteria = evaluation.isTeaching
-        ? TEACHING_CRITERIA
+      const exportGroups = isInterviewExport
+        ? INTERVIEW_GROUPS
+        : isTeachingExport
+          ? TEACHING_GROUPS
+          : null;
+
+      const criteria = exportGroups
+        ? Object.fromEntries(exportGroups.flatMap((group) =>
+            Object.entries(group.items).map(([key, item]) => [key, { name: item.name, max: item.max }])
+          ))
         : evaluation.displayLevel === "first_level"
           ? FIRST_LEVEL_CRITERIA
           : SECOND_LEVEL_CRITERIA;
 
-      const teachingItems = isTeachingExport
-        ? TEACHING_GROUPS.flatMap((group, groupIndex) =>
+      const groupedItems = exportGroups
+        ? exportGroups.flatMap((group, groupIndex) =>
             Object.entries(group.items).map(([key, item], itemIndex) => ({
               key,
               name: item.name,
@@ -763,30 +961,31 @@ export default function Evaluations() {
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(11);
       pdf.setTextColor(40);
-      pdf.text("Panelist Scores by Criterion", margin, cursorY + 8);
+      pdf.text(isInterviewExport ? "Interview Scores by Criterion" : "Panelist Scores by Criterion", margin, cursorY + 8);
       cursorY += 16;
 
-      const criterionKeys = isTeachingExport ? teachingItems.map((item) => item.key) : Object.keys(criteria);
-      const headers = isTeachingExport
-        ? ["Panelist", ...teachingItems.map((item) => item.code)]
+      const criterionKeys = exportGroups ? groupedItems.map((item) => item.key) : Object.keys(criteria);
+      const headers = exportGroups
+        ? ["Panelist", ...groupedItems.map((item) => item.code)]
         : ["Panelist", ...Object.entries(criteria).map(([, data]) => data.name)];
+      const scorePrefix = isInterviewExport ? "iv_" : "";
       const rows = (evaluation.panelists ?? []).map((panelist) => [
         panelist.name,
         ...criterionKeys.map((key) => {
-          const score = panelist.scores[key];
+          const score = panelist.scores[`${scorePrefix}${key}`];
           return score !== undefined ? String(score) : "—";
         })
       ]);
 
-      const baseWidth = isTeachingExport ? 120 : 90;
+      const baseWidth = exportGroups ? 120 : 90;
       const criteriaCount = criterionKeys.length;
-      const criteriaWidth = Math.max(isTeachingExport ? 28 : 20, (contentWidth - baseWidth) / criteriaCount);
+      const criteriaWidth = Math.max(exportGroups ? 28 : 20, (contentWidth - baseWidth) / criteriaCount);
       const widths = [baseWidth, ...Array(criteriaCount).fill(criteriaWidth)];
       const normalizedWidths = widths.map((w) => w);
 
       const drawRow = (values: string[], isHeader = false) => {
         const cellLines = values.map((value, index) => pdf.splitTextToSize(value, normalizedWidths[index] - 8) as string[]);
-        const lineHeight = isTeachingExport ? 9 : 10;
+          const lineHeight = exportGroups ? 9 : 10;
         const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * lineHeight + 6;
         ensureSpace(rowHeight + 2);
 
@@ -801,10 +1000,10 @@ export default function Evaluations() {
           pdf.rect(startX, cursorY, width, rowHeight);
           pdf.setFont("helvetica", isHeader ? "bold" : "normal");
           pdf.setTextColor(isHeader ? 255 : 40);
-          pdf.setFontSize(isTeachingExport ? (isHeader ? 8 : 8.5) : (isHeader ? 8.5 : 9));
+          pdf.setFontSize(exportGroups ? (isHeader ? 8 : 8.5) : (isHeader ? 8.5 : 9));
           cellLines[index].forEach((line, lineIndex) => {
             const isFirstColumn = index === 0;
-            if (isTeachingExport && !isFirstColumn) {
+            if (exportGroups && !isFirstColumn) {
               const textWidth = pdf.getTextWidth(line);
               const centerX = startX + width / 2;
               pdf.text(line, centerX - textWidth / 2, cursorY + 10 + lineIndex * lineHeight);
@@ -832,7 +1031,7 @@ export default function Evaluations() {
       pdf.line(margin, cursorY, pageWidth - margin, cursorY);
       cursorY += 22;
 
-      if (!isTeachingExport) {
+      if (!exportGroups) {
         pdf.setFont("helvetica", "bold");
         pdf.setFontSize(11);
         pdf.setTextColor(40);
@@ -901,23 +1100,21 @@ export default function Evaluations() {
         averageRows.forEach((row, index) => drawAverageRow(row, index));
       }
 
-      if (isTeachingExport) {
+      if (exportGroups) {
         pdf.setFont("helvetica", "bold");
         pdf.setFontSize(11);
         pdf.setTextColor(40);
-        pdf.text("Panelist Section Totals (A/B/C/D)", margin, cursorY + 8);
+        pdf.text(`Panelist Section Totals (${exportGroups.map((_, index) => String.fromCharCode(65 + index)).join("/")})`, margin, cursorY + 8);
         cursorY += 16;
 
-        const panelistSectionHeaders = ["Panelist", "A Total", "B Total", "C Total", "D Total"];
-        const panelistSectionRows = teachingPanelistStats.map((panelist) => [
+        const panelistSectionHeaders = ["Panelist", ...exportGroups.map((_, index) => `${String.fromCharCode(65 + index)} Total`)];
+        const panelistSectionRows = groupedPanelistStats.map((panelist) => [
           panelist.panelistName,
-          panelist.sections[0]?.totalScore.toFixed(2) ?? "0.00",
-          panelist.sections[1]?.totalScore.toFixed(2) ?? "0.00",
-          panelist.sections[2]?.totalScore.toFixed(2) ?? "0.00",
-          panelist.sections[3]?.totalScore.toFixed(2) ?? "0.00"
+          ...panelist.sections.map((section) => section.totalScore.toFixed(2))
         ]);
 
-        const panelistSectionWidths = [contentWidth * 0.3, contentWidth * 0.175, contentWidth * 0.175, contentWidth * 0.175, contentWidth * 0.175];
+        const sectionCount = exportGroups.length;
+        const panelistSectionWidths = [contentWidth * 0.3, ...Array(sectionCount).fill((contentWidth * 0.7) / sectionCount)];
 
         const drawPanelistSectionHeaderRow = () => {
           const rowHeight = 14;
@@ -983,17 +1180,18 @@ export default function Evaluations() {
         pdf.text("Panelist Weighted Percentage Summary", margin, cursorY + 8);
         cursorY += 16;
 
-        const sectionHeaders = ["Panelist", "A (30%)", "B (30%)", "C (20%)", "D (20%)", "Total %"];
-        const sectionRows = teachingPanelistStats.map((panelist) => [
+        const sectionHeaders = [
+          "Panelist",
+          ...exportGroups.map((group, index) => `${String.fromCharCode(65 + index)} (${group.weight}%)`),
+          "Total %"
+        ];
+        const sectionRows = groupedPanelistStats.map((panelist) => [
           panelist.panelistName,
-          panelist.sections[0]?.weightedScore.toFixed(2) ?? "0.00",
-          panelist.sections[1]?.weightedScore.toFixed(2) ?? "0.00",
-          panelist.sections[2]?.weightedScore.toFixed(2) ?? "0.00",
-          panelist.sections[3]?.weightedScore.toFixed(2) ?? "0.00",
+          ...panelist.sections.map((section) => section.weightedScore.toFixed(2)),
           panelist.weightedTotal.toFixed(2)
         ]);
 
-        const sectionWidths = [contentWidth * 0.3, contentWidth * 0.14, contentWidth * 0.14, contentWidth * 0.14, contentWidth * 0.14, contentWidth * 0.14];
+        const sectionWidths = [contentWidth * 0.3, ...Array(sectionCount).fill((contentWidth * 0.7) / (sectionCount + 1)), (contentWidth * 0.7) / (sectionCount + 1)];
 
         const drawSectionHeaderRow = () => {
           const rowHeight = 14;
@@ -1105,6 +1303,13 @@ export default function Evaluations() {
                   // `oralCommunication` so the server records it as the second-level total.
                   basePayload.positionLevel = "second_level";
                   basePayload.oralCommunication = totalScore;
+                  // If interview scores were collected, compute and include interview total
+                  try {
+                    const interviewTotal = calculateInterviewWeightedTotal(formPanelists as any);
+                    basePayload.interviewTotal = interviewTotal;
+                  } catch (e) {
+                    basePayload.interviewTotal = 0;
+                  }
                 } else {
                   Object.assign(basePayload, mapAveragesToScorePayload(averages as any, vacancyLevel));
                 }
@@ -1214,6 +1419,12 @@ export default function Evaluations() {
                 // Store as second-level numeric so backend computes totals correctly
                 payload.positionLevel = "second_level";
                 payload.oralCommunication = totalScore;
+                // include interview total if any interview keys present
+                try {
+                  payload.interviewTotal = calculateInterviewWeightedTotal(editPanelists as any);
+                } catch (e) {
+                  payload.interviewTotal = 0;
+                }
               } else {
                 Object.assign(payload, mapAveragesToScorePayload(averages, editingEvaluation?.positionLevel ?? "first_level"));
               }
@@ -1276,6 +1487,74 @@ export default function Evaluations() {
         </DialogContent>
       </Dialog>
 
+      {/* Interview Dialog */}
+      <Dialog open={showInterviewDialog} onOpenChange={(open) => setShowInterviewDialog(open)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Interview Evaluation</DialogTitle>
+            <DialogDescription>Enter interview scores for the panelists. These will be saved as the interview result.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {(interviewPanelists || []).map((panelist, pIdx) => (
+              <div key={panelist.id} className="p-3 bg-background border border-border/60 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-xs font-semibold">Panelist {pIdx + 1}: {panelist.name || "(name)"}</Label>
+                </div>
+                {INTERVIEW_GROUPS.map((group, gIdx) => (
+                  <div key={gIdx} className="mb-2">
+                    <div className="text-sm font-semibold mb-2">{group.title} <span className="text-xs text-muted-foreground">({group.weight}%)</span></div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {Object.entries(group.items).map(([key, data]) => (
+                        <div key={key} className="space-y-1">
+                          <Label className="text-xs flex justify-between">
+                            <span>{data.name}</span>
+                            <span className="text-muted-foreground">/{data.max}</span>
+                          </Label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={data.max}
+                            placeholder={`0-${data.max}`}
+                            value={panelist.scores[`iv_${key}`] ?? ""}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            onChange={(e) => {
+                              let val = e.target.value ? Number(e.target.value) : undefined;
+                              if (val !== undefined) {
+                                if (val < 0) val = 0;
+                                if (val > data.max) val = data.max;
+                              }
+                              const updated = interviewPanelists.map((p, i) =>
+                                i === pIdx ? { ...p, scores: { ...p.scores, [`iv_${key}`]: val } } : p
+                              );
+                              setInterviewPanelists(updated);
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3 justify-end mt-4">
+            <Button variant="outline" onClick={() => setShowInterviewDialog(false)}>Cancel</Button>
+            <Button onClick={() => {
+              if (!interviewTargetId) return;
+              const interviewTotal = calculateInterviewWeightedTotal(interviewPanelists as any);
+              const payload: any = {
+                positionLevel: interviewTargetPositionLevel ?? "second_level",
+                panelists: interviewPanelists.map((p) => ({ id: p.id, name: p.name, scores: p.scores })),
+                oralCommunication: interviewTotal,
+                interviewTotal
+              };
+              updateMutation.mutate({ id: interviewTargetId, payload } as any);
+              setShowInterviewDialog(false);
+            }}>Save Interview</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Filters */}
       <Card>
         <CardContent className="pt-4 pb-4">
@@ -1318,6 +1597,7 @@ export default function Evaluations() {
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Applicant</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Position</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Level</th>
+                  <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Status</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Panelists</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide text-center">Avg Score</th>
                   <th className="h-12 px-4 text-[11px] font-semibold text-primary-foreground uppercase tracking-wide">Remarks</th>
@@ -1342,10 +1622,15 @@ export default function Evaluations() {
                     <td className="px-4 py-3 text-muted-foreground">{ev.positionTitle}</td>
                     <td className="px-4 py-3 text-muted-foreground">{ev.displayLevel === "second_level" ? "Second Level" : "First Level"}</td>
                     <td className="px-4 py-3 text-muted-foreground">
+                      {getTeachingInterviewStage(ev) || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
                       {ev.panelists?.length ?? 0} panelist{(ev.panelists?.length ?? 0) !== 1 ? "s" : ""}
                     </td>
                     <td className="px-4 py-3 text-center font-bold text-primary text-base">
-                      {ev.isTeaching ? Number(ev.totalScore ?? 0).toFixed(1) : getAverageScore(ev.totalScore, ev.displayLevel).toFixed(1)}
+                      {ev.isTeaching
+                        ? Number(ev.interviewTotal ?? ev.totalScore ?? 0).toFixed(1)
+                        : getAverageScore(ev.totalScore, ev.displayLevel).toFixed(1)}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{ev.remarks}</td>
                     <td className="px-4 py-3 text-right">
@@ -1360,6 +1645,12 @@ export default function Evaluations() {
                             <Pencil className="w-4 h-4 mr-2" />
                             Edit
                           </DropdownMenuItem>
+                          {ev.isTeaching && ev.interviewTotal == null && (
+                            <DropdownMenuItem onClick={() => handleOpenInterview(ev)}>
+                              <Info className="w-4 h-4 mr-2" />
+                              Proceed to Interview Evaluation
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             onClick={() => handleExportSingleEvaluationPdf(ev)}
                             disabled={isExportingReport}
@@ -1384,7 +1675,7 @@ export default function Evaluations() {
                 ))}
                 {filteredEvaluationRows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       No evaluations found for the selected filters.
                     </td>
                   </tr>
@@ -1396,4 +1687,24 @@ export default function Evaluations() {
       </Card>
     </div>
   );
+}
+
+function calculateInterviewWeightedTotal(panelists: Array<{ scores: PanelistScores }>) {
+  // Compute interview weighted percentage (0..100) based on INTERVIEW_GROUPS
+  let totalWeight = 0;
+  let weightedSum = 0;
+
+  INTERVIEW_GROUPS.forEach((group) => {
+    Object.entries(group.items).forEach(([key, item]) => {
+      const scores = panelists.map((p) => p.scores[`iv_${key}`]).filter((s): s is number => s !== undefined);
+      if (scores.length === 0) return;
+      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const normalized = avg / item.max; // 0..1
+      weightedSum += normalized * item.weight;
+      totalWeight += item.weight;
+    });
+  });
+
+  if (totalWeight === 0) return 0;
+  return (weightedSum / totalWeight) * 100;
 }

@@ -457,6 +457,7 @@ export async function createEvaluation(payload: {
 export async function updateEvaluation(id: string, payload: {
   positionLevel: "first_level" | "second_level";
   panelists: Panelist[];
+  interviewTotal?: number;
   communicationSkills?: number;
   abilityToPresent?: number;
   alertness?: number;

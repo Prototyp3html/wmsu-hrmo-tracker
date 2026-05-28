@@ -1654,6 +1654,7 @@ function mapEvaluation(row: any) {
     sensitivity: row.sensitivity,
     serviceOrientation: row.service_orientation,
     secondLevelTotal: row.second_level_total,
+    interviewTotal: row.interview_total,
     totalScore: row.total_score,
     remarks: row.remarks ?? "",
     evaluatedBy: row.evaluated_by,
@@ -3181,6 +3182,7 @@ app.post("/api/evaluations", requireAuth, asyncHandler(async (req: AuthedRequest
     stressTolerance,
     sensitivity,
     serviceOrientation,
+    interviewTotal,
     remarks
   } = req.body as any;
 
@@ -3232,6 +3234,7 @@ app.post("/api/evaluations", requireAuth, asyncHandler(async (req: AuthedRequest
     id: randomUUID(),
     applicationId,
     positionLevel,
+    interviewTotal: null,
     communicationSkills: communicationSkills || null,
     abilityToPresent: abilityToPresent || null,
     alertness: alertness || null,
@@ -3261,8 +3264,8 @@ app.post("/api/evaluations", requireAuth, asyncHandler(async (req: AuthedRequest
       panelists_count,
       communication_skills, ability_to_present, alertness, judgement, emotional_stability, self_confidence, first_level_total,
       oral_communication, analytical_ability, initiative, stress_tolerance, sensitivity, service_orientation, second_level_total,
-      total_score, remarks, evaluated_by, evaluated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+      interview_total, total_score, remarks, evaluated_by, evaluated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
     [
       evaluation.id,
       evaluation.applicationId,
@@ -3283,6 +3286,7 @@ app.post("/api/evaluations", requireAuth, asyncHandler(async (req: AuthedRequest
       evaluation.sensitivity,
       evaluation.serviceOrientation,
       evaluation.secondLevelTotal,
+      evaluation.interviewTotal,
       evaluation.totalScore,
       evaluation.remarks,
       evaluation.evaluatedBy,
@@ -3310,6 +3314,7 @@ app.put("/api/evaluations/:id", requireAuth, asyncHandler(async (req: AuthedRequ
     stressTolerance,
     sensitivity,
     serviceOrientation,
+    interviewTotal,
     remarks
   } = req.body as any;
 
@@ -3367,8 +3372,9 @@ app.put("/api/evaluations/:id", requireAuth, asyncHandler(async (req: AuthedRequ
       sensitivity=$16,
       service_orientation=$17,
       second_level_total=$18,
-      total_score=$19,
-      remarks=$20
+      interview_total=$19,
+      total_score=$20,
+      remarks=$21
     WHERE id=$1 RETURNING *`,
     [
       req.params.id,
@@ -3389,6 +3395,7 @@ app.put("/api/evaluations/:id", requireAuth, asyncHandler(async (req: AuthedRequ
       sensitivity || null,
       serviceOrientation || null,
       secondLevelTotal,
+      interviewTotal ?? null,
       totalScore,
       remarks ?? ""
     ]

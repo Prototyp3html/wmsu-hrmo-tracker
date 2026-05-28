@@ -161,6 +161,7 @@ export async function initDb() {
       sensitivity REAL,
       service_orientation REAL,
       second_level_total REAL,
+      interview_total REAL,
       total_score REAL NOT NULL,
       remarks TEXT,
       evaluated_by TEXT NOT NULL,
@@ -216,6 +217,13 @@ export async function initDb() {
   await query(`
     ALTER TABLE evaluations
     ADD COLUMN IF NOT EXISTS panelists TEXT NOT NULL DEFAULT '[]';
+  `).catch(() => {
+    // Ignore errors if column already exists.
+  });
+
+  await query(`
+    ALTER TABLE evaluations
+    ADD COLUMN IF NOT EXISTS interview_total REAL;
   `).catch(() => {
     // Ignore errors if column already exists.
   });

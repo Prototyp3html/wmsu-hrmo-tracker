@@ -156,6 +156,7 @@ export interface Evaluation {
   sensitivityAvg?: number;
   serviceOrientationAvg?: number;
   secondLevelTotal?: number;
+  interviewTotal?: number;
   totalScore: number;
   remarks: string;
   evaluatedBy: string;
